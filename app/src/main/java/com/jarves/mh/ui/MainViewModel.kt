@@ -2879,6 +2879,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val removesTool = action is ToolchainAction.RemoveGcc ||
             action is ToolchainAction.RemoveSdkPlatform ||
+            action is ToolchainAction.RemoveBuildTools ||
             action is ToolchainAction.RemoveCmake ||
             action is ToolchainAction.RemoveNdk
         if (removesTool && (current.isRunning || current.projectTerminalRunning || current.androidBuildRunning)) {
@@ -2911,6 +2912,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         is ToolchainAction.InstallSdkPlatform -> installer.installSdkPlatform(action.api, progress)
                         is ToolchainAction.SelectSdkPlatform -> installer.selectSdkPlatform(action.api)
                         is ToolchainAction.RemoveSdkPlatform -> installer.removeSdkPlatform(action.api, progress)
+                        is ToolchainAction.InstallBuildTools -> installer.installBuildToolsVersion(action.version, progress)
+                        is ToolchainAction.SelectBuildTools -> installer.selectBuildToolsVersion(action.version)
+                        is ToolchainAction.RemoveBuildTools -> installer.removeBuildToolsVersion(action.version, progress)
                         is ToolchainAction.InstallCmake -> installer.installCmakeVersion(action.version, action.url, action.sha256, progress)
                         is ToolchainAction.SelectCmake -> installer.selectCmakeVersion(action.version)
                         is ToolchainAction.RemoveCmake -> installer.removeCmakeVersion(action.version, progress)
@@ -2969,6 +2973,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         is ToolchainAction.InstallSdkPlatform -> "Android SDK API ${action.api} installed."
         is ToolchainAction.SelectSdkPlatform -> "Android SDK API ${action.api} selected for project scripts."
         is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api} removed."
+        is ToolchainAction.InstallBuildTools -> "Android Build Tools ${action.version} installed."
+        is ToolchainAction.SelectBuildTools -> "Android Build Tools ${action.version} selected for new processes."
+        is ToolchainAction.RemoveBuildTools -> "Android Build Tools ${action.version} removed."
         is ToolchainAction.InstallCmake -> "CMake ${action.version} installed."
         is ToolchainAction.SelectCmake -> "CMake ${action.version} selected for new terminal sessions."
         is ToolchainAction.RemoveCmake -> "CMake ${action.version} removed."
