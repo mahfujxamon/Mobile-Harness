@@ -394,6 +394,7 @@
     <string name="toolchains_section_buildtools">Android Build Tools</string>
     <string name="toolchains_buildtools_version_hint">Build Tools version (for example 35.0.0)</string>
     <string name="toolchains_buildtools_note">Versions can coexist, but this ARM64 runtime accepts only packages with a native ARM64 aapt2. Upstream SDK packages may contain x86-64 binaries and will be rejected.</string>
+    <string name="toolchains_buildtools_protected">Build Tools 35.0.0 is retained as the verified runtime baseline and Gradle AAPT2 fallback.</string>
     <string name="toolchains_profile_buildtools_override">Project Android Build Tools version</string>
     <string name="toolchains_buildtools_version">Build Tools %1$s</string>
 
