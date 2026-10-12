@@ -2554,6 +2554,7 @@ private fun RootScreenHost(
                     onRemoveApiKey = viewModel::removeApiKey,
                     onInstallDevStack = viewModel::installDevStack,
                     onRemoveDevStack = viewModel::removeDevStack,
+                    onToolchainAction = viewModel::onToolchainAction,
                     onInstallAgent = viewModel::installAgent,
                     onCheckAgentUpdates = viewModel::checkAgentUpdates,
                     onUpdateAgent = viewModel::updateAgent,
