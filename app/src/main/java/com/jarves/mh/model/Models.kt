@@ -72,6 +72,12 @@ enum class AgentKind(
         "Google's official coding agent · Google account",
         "39.9 MB",
     ),
+    CODEX_CLI(
+        "codex-cli",
+        "Codex CLI",
+        "OpenAI coding agent · OpenAI-compatible API",
+        "npm package",
+    ),
     ;
 
     companion object {
@@ -137,6 +143,7 @@ fun providersForAgent(agent: AgentKind): List<ProviderKind> = when (agent) {
     AgentKind.DEEPSEEK_HARNESS -> ProviderKind.entries.filter { it in DEEPSEEK_HARNESS_PROVIDERS }
     AgentKind.CLAUDE_CODE -> ProviderKind.entries.filterNot { it == ProviderKind.OPENCODE_ZEN }
     AgentKind.ANTIGRAVITY -> emptyList()
+    AgentKind.CODEX_CLI -> listOf(ProviderKind.CUSTOM)
 }
 
 data class ProviderProfile(
