@@ -2926,6 +2926,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             ToolchainProjectProfile(
                                 gccVersion = action.gccVersion,
                                 sdkApi = action.sdkApi,
+                                buildToolsVersion = action.buildToolsVersion,
                                 cmakeVersion = action.cmakeVersion,
                                 ndkVersion = action.ndkVersion,
                             ),
