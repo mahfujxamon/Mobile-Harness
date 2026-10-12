@@ -1251,7 +1251,7 @@ class RuntimeInstaller(private val context: Context) {
         inventory.selectedNdkVersion?.let { profile.put("ndk", it) }
 
         profileFile.parentFile?.mkdirs()
-        val temporary = File(profileFile.parentFile, "toolchain-profile-${System.nanoTime()}.tmp")
+        val temporary = File(profileFile.parentFile, profileFile.name + ".tmp")
         temporary.writeText(profile.toString(2))
         if (profileFile.exists()) check(profileFile.delete()) { "Could not replace project toolchain profile." }
         check(temporary.renameTo(profileFile)) { "Could not save project toolchain profile." }
@@ -1261,6 +1261,25 @@ class RuntimeInstaller(private val context: Context) {
     fun clearProjectToolchainProfile(projectId: String) {
         val profileFile = projectToolchainProfileFile(projectId)
         if (profileFile.exists()) check(profileFile.delete()) { "Could not remove project toolchain profile." }
+    }
+
+
+    private fun isToolchainVersionUsedByProjectProfiles(key: String, version: String): Boolean {
+        val directory = File(context.filesDir, "toolchain-profiles")
+        return directory.listFiles().orEmpty().any { file ->
+            file.isFile && file.extension == "json" && runCatching {
+                JSONObject(file.readText()).optString(key) == version
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun isSdkApiUsedByProjectProfiles(api: Int): Boolean {
+        val directory = File(context.filesDir, "toolchain-profiles")
+        return directory.listFiles().orEmpty().any { file ->
+            file.isFile && file.extension == "json" && runCatching {
+                JSONObject(file.readText()).optInt("sdkApi", -1) == api
+            }.getOrDefault(false)
+        }
     }
 
     private fun projectToolchainProfileFile(projectId: String): File {
@@ -1300,6 +1319,9 @@ class RuntimeInstaller(private val context: Context) {
     suspend fun removeCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
         require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
         require(version != "10") { "GCC/G++ 10 is retained for Node 24 native-addon builds and Graft compatibility." }
+        require(!isToolchainVersionUsedByProjectProfiles("gcc", version)) {
+            "Project toolchain profile(s) still require GCC/G++ $version. Clear or update those profiles first."
+        }
         require(toolchainInventory().selectedGccVersion != version) {
             "Select another GCC/G++ version before removing $version."
         }
@@ -1336,6 +1358,9 @@ class RuntimeInstaller(private val context: Context) {
         val selected = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
             ?: toolchainInventory().selectedSdkApi
         require(selected != api) { "Choose another Android SDK API before removing API $api." }
+        require(!isSdkApiUsedByProjectProfiles(api)) {
+            "A project toolchain profile still requires Android SDK API $api. Clear or update that profile first."
+        }
         val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
         check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable." }
         runGuestCommand(
@@ -1423,6 +1448,9 @@ class RuntimeInstaller(private val context: Context) {
 
     suspend fun removeCmakeVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
         require(version != "system") { "The Ubuntu apt-managed CMake fallback cannot be removed by the versioned archive manager." }
+        require(!isToolchainVersionUsedByProjectProfiles("cmake", version)) {
+            "A project toolchain profile still requires CMake $version. Clear or update that profile first."
+        }
         require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed" }
         require(File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull() != version) {
             "Select another CMake version before removing $version."
@@ -1504,6 +1532,9 @@ class RuntimeInstaller(private val context: Context) {
 
     suspend fun removeNdkVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
         require(version in toolchainInventory().installedNdkVersions) { "NDK $version is not installed" }
+        require(!isToolchainVersionUsedByProjectProfiles("ndk", version)) {
+            "A project toolchain profile still requires NDK $version. Clear or update that profile first."
+        }
         require(File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull() != version) {
             "Select another NDK version before removing $version."
         }
