@@ -18,6 +18,22 @@ data class ToolchainInventory(
     val runtimeAvailable: Boolean = false,
 )
 
+/** Optional per-project overrides. Null means inherit the global default for that tool. */
+data class ToolchainProjectProfile(
+    val gccVersion: String? = null,
+    val sdkApi: Int? = null,
+    val cmakeVersion: String? = null,
+    val ndkVersion: String? = null,
+)
+
+/** Snapshot returned after a toolchain inventory/profile refresh. */
+data class ToolchainManagerSnapshot(
+    val inventory: ToolchainInventory,
+    val projectId: String?,
+    val projectProfileSaved: Boolean,
+    val projectProfile: ToolchainProjectProfile?,
+)
+
 /** User actions exposed by the Settings > Versioned toolchains panel. */
 sealed class ToolchainAction {
     object Refresh : ToolchainAction()
@@ -41,6 +57,12 @@ sealed class ToolchainAction {
     ) : ToolchainAction()
     data class SelectNdk(val version: String) : ToolchainAction()
     data class RemoveNdk(val version: String) : ToolchainAction()
-    data class SaveProjectProfile(val projectId: String) : ToolchainAction()
+    data class SaveProjectProfile(
+        val projectId: String,
+        val gccVersion: String? = null,
+        val sdkApi: Int? = null,
+        val cmakeVersion: String? = null,
+        val ndkVersion: String? = null,
+    ) : ToolchainAction()
     data class ClearProjectProfile(val projectId: String) : ToolchainAction()
 }
