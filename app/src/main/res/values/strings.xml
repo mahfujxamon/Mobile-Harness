@@ -382,4 +382,35 @@
     <string name="diagnostics_inactive_stopped">Inactive processes stopped</string>
     <string name="diagnostics_cache_busy">Wait for active work to finish before clearing output</string>
     <string name="diagnostics_cache_cleared">Disposable runtime output cleared</string>
+
+    <!-- Versioned toolchains -->
+    <string name="toolchains_title">Versioned toolchains</string>
+    <string name="toolchains_subtitle">Install, select and remove compatible versions side-by-side</string>
+    <string name="toolchains_description">Keep legacy and modern build tools installed together. Selections apply to new terminal sessions; project Gradle files may override SDK, NDK and CMake versions.</string>
+    <string name="toolchains_refresh">Refresh inventory</string>
+    <string name="toolchains_section_gcc">GCC / G++ compiler</string>
+    <string name="toolchains_section_sdk">Android SDK platforms</string>
+    <string name="toolchains_section_cmake">CMake</string>
+    <string name="toolchains_section_ndk">Android NDK (Linux ARM64 host)</string>
+    <string name="toolchains_version">Version</string>
+    <string name="toolchains_install">Install</string>
+    <string name="toolchains_select">Use for new terminal sessions</string>
+    <string name="toolchains_remove">Remove</string>
+    <string name="toolchains_active">Selected: %1$s</string>
+    <string name="toolchains_none_installed">No compatible versions detected yet. Refresh after installing the related toolchain.</string>
+    <string name="toolchains_gcc_supported">Available package versions on this Ubuntu 20.04 ARM64 setup: GCC/G++ 9 and 10.</string>
+    <string name="toolchains_gcc10_protected">GCC/G++ 10 is kept installed for Node.js 24 native modules and Graft. It cannot be removed here.</string>
+    <string name="toolchains_sdk_api_hint">Android API level (for example 35 or 36)</string>
+    <string name="toolchains_sdk_note">SDK platforms can coexist. This changes the default API environment variables; a project's compileSdk setting still takes precedence.</string>
+    <string name="toolchains_cmake_version_hint">CMake version (for example 3.31.12)</string>
+    <string name="toolchains_cmake_url_hint">Optional HTTPS ARM64 archive URL (leave blank for official Kitware release)</string>
+    <string name="toolchains_cmake_sha_hint">SHA-256 checksum (required for a custom archive)</string>
+    <string name="toolchains_cmake_note">Only native Linux AArch64 binaries are accepted. Legacy CMake builds can be supplied with a custom archive and checksum.</string>
+    <string name="toolchains_ndk_version_hint">NDK version as shown in source.properties</string>
+    <string name="toolchains_ndk_url_hint">HTTPS URL for a Linux ARM64 NDK archive</string>
+    <string name="toolchains_ndk_sha_hint">SHA-256 checksum</string>
+    <string name="toolchains_ndk_note">Google's standard Linux NDK archives are x86_64 and cannot run here. Use a trusted Linux/AArch64-host NDK build; invalid or mismatched archives are rejected.</string>
+    <string name="toolchains_busy">A toolchain operation is already running.</string>
+    <string name="toolchains_remove_selected_blocked">Select a different version before removing the currently selected toolchain.</string>
+
 </resources>
