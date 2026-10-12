@@ -265,7 +265,12 @@
     <string name="agent_subtitle_claude">Anthropic’s coding agent · broad provider support</string>
     <string name="agent_subtitle_deepseek">Official DeepSeek coding agent · API-key providers</string>
     <string name="agent_subtitle_antigravity">Google’s official coding agent · Google account</string>
-    <string name="agent_subtitle_codex">OpenAI coding agent · OpenAI API key or Codex login</string>
+    <string name="agent_subtitle_codex">Official OpenAI Codex · ChatGPT subscription or API key</string>
+    <string name="provider_codex_chatgpt_title">Use your ChatGPT plan</string>
+    <string name="provider_codex_chatgpt_desc">Sign in with ChatGPT to use Codex included with your plan. No API key is required. After continuing, open the terminal and run this command:</string>
+    <string name="provider_codex_device_command">codex login --device-auth</string>
+    <string name="provider_codex_continue">Continue with ChatGPT sign-in</string>
+    <string name="provider_codex_api_instead">Use an API key instead</string>
     <string name="agent_codex_provider_saved">Codex provider saved. Connection will be checked when a task starts.</string>
     <string name="agent_codex_validate_on_run">Codex validates the OpenAI-compatible endpoint when you start a task. Enter the model ID manually.</string>
     <string name="projects_hero_title">Build from your phone</string><string name="projects_hero_desc">Chat, review changes, and preview your project.</string><string name="projects_quick_project">Quick project</string><string name="projects_new_project">New project</string><string name="projects_bring_existing">Bring an existing project</string><string name="projects_import_expanded">Import files or clone complete Git history</string><string name="projects_import_sources">ZIP file, Git repository, or GitHub</string><string name="projects_your_projects">Your projects</string><string name="projects_empty_title">No projects yet</string><string name="projects_empty_desc">Create a named project or start instantly with a Quick Project.</string><string name="projects_terminal">Terminal</string>
