@@ -1174,6 +1174,119 @@ class RuntimeInstaller(private val context: Context) {
         writeDevStackState(state)
     }
 
+
+    /** Returns the versions actually installed in the ARM64 runtime. */
+    fun toolchainInventory(): ToolchainInventory {
+        val binDir = File(rootfs, "usr/bin")
+        val gccVersions = binDir.listFiles().orEmpty()
+            .mapNotNull { Regex("""^gcc-(\d+)$""").matchEntire(it.name)?.groupValues?.get(1) }
+            .filter { File(binDir, "gcc-$it").canExecute() && File(binDir, "g++-$it").canExecute() }
+            .distinct().sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
+        val selectedGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+            ?.takeIf { it in gccVersions }
+            ?: if ("10" in gccVersions) "10" else gccVersions.lastOrNull() ?: "10"
+
+        val sdk = File(rootfs, "root/android-sdk")
+        val sdkPlatforms = File(sdk, "platforms").listFiles().orEmpty()
+            .mapNotNull { Regex("""^android-(\d+)$""").matchEntire(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            .filter { File(sdk, "platforms/android-$it/android.jar").isFile }
+            .distinct().sorted()
+        val requestedApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+        val selectedApi = requestedApi?.takeIf { it in sdkPlatforms }
+            ?: 36.takeIf { 36 in sdkPlatforms } ?: sdkPlatforms.lastOrNull()
+
+        val cmakeVersions = File(sdk, "cmake").listFiles().orEmpty()
+            .filter { dir ->
+                val executable = File(dir, "bin/cmake")
+                executable.isFile && executable.canExecute() && isAarch64Elf(executable)
+            }.map { it.name }.sortedWith(versionComparator())
+        val selectedCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+            ?.takeIf { it in cmakeVersions }
+        val ndkVersions = File(sdk, "ndk").listFiles().orEmpty()
+            .filter(::isValidNativeNdk).map { it.name }.sortedWith(versionComparator())
+        val selectedNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
+            ?.takeIf { it in ndkVersions }
+
+        return ToolchainInventory(
+            installedGccVersions = gccVersions,
+            selectedGccVersion = selectedGcc,
+            installedSdkPlatforms = sdkPlatforms,
+            selectedSdkApi = selectedApi,
+            installedCmakeVersions = cmakeVersions,
+            selectedCmakeVersion = selectedCmake,
+            installedNdkVersions = ndkVersions,
+            selectedNdkVersion = selectedNdk,
+            runtimeAvailable = File(rootfs, "usr/bin/bash").isFile,
+        )
+    }
+
+    suspend fun installCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in SUPPORTED_GCC_VERSIONS) {
+            "This Ubuntu 20.04 ARM64 runtime currently manages GCC versions " +
+                SUPPORTED_GCC_VERSIONS.joinToString() + " from its configured repositories."
+        }
+        val proot = installedRuntime().proot
+        aptInstall(proot, listOf("gcc-$version", "g++-$version"), "Installing GCC/G++ $version side-by-side", 0.15f, onProgress)
+        verifyGuest(proot, "gcc-$version --version && g++-$version --version", str(R.string.rt_install_verify_failed, "GCC/G++ $version"))
+    }
+
+    fun selectCompilerVersion(version: String) {
+        require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
+        File(rootfs, "root/.pocket-default-gcc-version").writeText(version)
+    }
+
+    suspend fun removeCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
+        require(version != "10") { "GCC/G++ 10 is retained for Node 24 native-addon builds and Graft compatibility." }
+        require(File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull() != version) {
+            "Select another GCC/G++ version before removing $version."
+        }
+        aptRemove(installedRuntime().proot, listOf("gcc-$version", "g++-$version"), 0.2f, onProgress)
+    }
+
+    suspend fun installSdkPlatform(api: Int, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(api in 21..100) { "Android API level must be between 21 and 100." }
+        val runtime = installedRuntime()
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable. Reinstall the Android toolchain first." }
+        runGuestCommand(
+            proot = runtime.proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --install 'platforms;android-$api'",
+            displayCommand = "sdkmanager --install platforms;android-$api",
+            fraction = 0.15f,
+            timeoutMs = 45 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not install Android SDK platform API $api",
+        )
+        verifyGuest(runtime.proot, "test -f /root/android-sdk/platforms/android-$api/android.jar", "SDK platform API $api did not install completely")
+        if (File(rootfs, "root/.pocket-default-android-api").readTextOrNull().isNullOrBlank()) {
+            File(rootfs, "root/.pocket-default-android-api").writeText(api.toString())
+        }
+    }
+
+    fun selectSdkPlatform(api: Int) {
+        require(api in toolchainInventory().installedSdkPlatforms) { "Android SDK platform API $api is not installed" }
+        File(rootfs, "root/.pocket-default-android-api").writeText(api.toString())
+    }
+
+    suspend fun removeSdkPlatform(api: Int, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(api in toolchainInventory().installedSdkPlatforms) { "Android SDK platform API $api is not installed" }
+        val selected = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+            ?: toolchainInventory().selectedSdkApi
+        require(selected != api) { "Choose another Android SDK API before removing API $api." }
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable." }
+        runGuestCommand(
+            proot = installedRuntime().proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'platforms;android-$api'",
+            displayCommand = "sdkmanager --uninstall platforms;android-$api",
+            fraction = 0.2f,
+            timeoutMs = 30 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not remove Android SDK platform API $api",
+        )
+    }
+
     fun installedStacks(): Set<DevStack> = readDevStackState()
         .filterValues { it }
         .keys
@@ -1598,27 +1711,50 @@ class RuntimeInstaller(private val context: Context) {
                 put("HOME", "/root")
                 val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
                 val basePath = "/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                val sdkRoot = File(rootfs, "root/android-sdk")
+                val selectedCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+                    ?.takeIf { File(sdkRoot, "cmake/$it/bin/cmake").let { executable -> executable.isFile && executable.canExecute() && isAarch64Elf(executable) } }
+                val selectedNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
+                    ?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
+                val selectedGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+                    ?.takeIf { File(rootfs, "usr/bin/gcc-$it").canExecute() && File(rootfs, "usr/bin/g++-$it").canExecute() }
+                    ?: "10"
+                val selectedApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+                    ?.takeIf { File(sdkRoot, "platforms/android-$it/android.jar").isFile }
+                    ?: 36.takeIf { File(sdkRoot, "platforms/android-36/android.jar").isFile }
+                val extraPath = buildList {
+                    selectedNdk?.let { add("/root/android-sdk/ndk/$it/toolchains/llvm/prebuilt/linux-aarch64/bin") }
+                    selectedCmake?.let { add("/root/android-sdk/cmake/$it/bin") }
+                }
+                val androidPath = if (androidReady) listOf(
+                    "/opt/gradle/gradle-8.14.3/bin",
+                    "/root/android-sdk/build-tools/35.0.0",
+                    "/root/android-sdk/cmdline-tools/latest/bin",
+                ) else emptyList()
+                put("PATH", (extraPath + androidPath + basePath.split(":")).distinct().joinToString(":"))
                 if (androidReady) {
                     put("ANDROID_HOME", "/root/android-sdk")
                     put("ANDROID_SDK_ROOT", "/root/android-sdk")
                     put("GRADLE_HOME", "/opt/gradle/gradle-8.14.3")
                     put("GRADLE_USER_HOME", "/root/.gradle")
                     put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/35.0.0/aapt2")
-                    put("PATH", "/opt/gradle/gradle-8.14.3/bin:/root/android-sdk/build-tools/35.0.0:/root/android-sdk/cmdline-tools/latest/bin:$basePath")
-                } else {
-                    put("PATH", basePath)
                 }
-                // node-gyp and similar native-addon builders need a predictable Python/compiler.
-                // The C/C++ stack installs GCC 10, which supports the C++20 mode required by
-                // Node 24's V8 headers. These defaults apply to every fresh terminal process;
-                // per-command environment assignments can still override them.
-                if (File(rootfs, "usr/bin/python3").canExecute()) {
-                    put("PYTHON", "/usr/bin/python3")
+                selectedCmake?.let { put("CMAKE_HOME", "/root/android-sdk/cmake/$it") }
+                selectedNdk?.let {
+                    put("ANDROID_NDK_HOME", "/root/android-sdk/ndk/$it")
+                    put("ANDROID_NDK_ROOT", "/root/android-sdk/ndk/$it")
                 }
-                if (File(rootfs, "usr/bin/gcc-10").canExecute() && File(rootfs, "usr/bin/g++-10").canExecute()) {
-                    put("CC", "/usr/bin/gcc-10")
-                    put("CXX", "/usr/bin/g++-10")
-                    put("CXXFLAGS", "-std=gnu++20")
+                selectedApi?.let {
+                    put("ANDROID_PLATFORM_API", it.toString())
+                    put("ANDROID_COMPILE_SDK", it.toString())
+                }
+                // GCC 10 remains installed for Node 24 / Graft C++20 addons, while legacy builds
+                // may select another installed compiler from Settings.
+                if (File(rootfs, "usr/bin/python3").canExecute()) put("PYTHON", "/usr/bin/python3")
+                if (File(rootfs, "usr/bin/gcc-$selectedGcc").canExecute() && File(rootfs, "usr/bin/g++-$selectedGcc").canExecute()) {
+                    put("CC", "/usr/bin/gcc-$selectedGcc")
+                    put("CXX", "/usr/bin/g++-$selectedGcc")
+                    if (selectedGcc == "10") put("CXXFLAGS", "-std=gnu++20")
                 }
                 put("LANG", "C.UTF-8")
                 put("TERM", "xterm-256color")
@@ -1949,6 +2085,8 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
         private const val LEGACY_CORE_TOOLS_VERSION = "core-bundle-2026.09.4"
         private const val SYSTEM_UPGRADE_VERSION = "ubuntu-maintenance-v1"
         private const val ANDROID_TOOLS_VERSION = "sdk36-build-tools35-gradle8.14.3-maven-2026.09"
+        private val SUPPORTED_GCC_VERSIONS = listOf("9", "10")
+        private val TOOL_VERSION_PATTERN = Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")
         private const val ANDROID_ASSET_BASE = "https://appdevforall.org/dev-assets/debug"
         private const val ANDROID_SDK_URL = "$ANDROID_ASSET_BASE/android-sdk-arm64-v8a.zip"
         private const val ANDROID_SDK_SHA256 = "bfe5bc940a7ede14735817a40962256666ce4152b9f3135f34a4ab9bccb87c3f"
