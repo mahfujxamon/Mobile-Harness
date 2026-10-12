@@ -507,7 +507,7 @@ fun SettingsScreen(
                         ToolchainOverrideSelector(
                             label = stringResource(R.string.toolchains_profile_sdk_override),
                             selected = projectApiOverride,
-                            options = inventory.installedSdkPlatforms.map(Int::toString),
+                            options = inventory.installedSdkPlatforms.map { it.toString() },
                             inheritedValue = inventory.selectedSdkApi?.toString() ?: "none",
                             onSelected = { projectApiOverride = it },
                         )
@@ -533,10 +533,10 @@ fun SettingsScreen(
                                     onToolchainAction(
                                         ToolchainAction.SaveProjectProfile(
                                             projectId = project.id,
-                                            gccVersion = projectGccOverride.takeIf(String::isNotBlank),
+                                            gccVersion = projectGccOverride.takeIf { it.isNotBlank() },
                                             sdkApi = projectApiOverride.toIntOrNull(),
-                                            cmakeVersion = projectCmakeOverride.takeIf(String::isNotBlank),
-                                            ndkVersion = projectNdkOverride.takeIf(String::isNotBlank),
+                                            cmakeVersion = projectCmakeOverride.takeIf { it.isNotBlank() },
+                                            ndkVersion = projectNdkOverride.takeIf { it.isNotBlank() },
                                         ),
                                     )
                                 }
