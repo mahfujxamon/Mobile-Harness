@@ -2261,9 +2261,33 @@ class RuntimeInstaller(private val context: Context) {
                     put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/$it/aapt2")
                 } ?: put("POCKETDEV_AAPT2_OVERRIDE", ANDROID_AAPT2_GUEST_PATH)
                 selectedCmake?.let { put("CMAKE_HOME", "/root/android-sdk/cmake/$it") }
-                selectedNdk?.let {
-                    put("ANDROID_NDK_HOME", "/root/android-sdk/ndk/$it")
-                    put("ANDROID_NDK_ROOT", "/root/android-sdk/ndk/$it")
+                selectedNdk?.let { version ->
+                    val ndkRoot = "/root/android-sdk/ndk/$version"
+                    val ndkBin = File(sdkRoot, "ndk/$version/toolchains/llvm/prebuilt/linux-aarch64/bin")
+                    put("ANDROID_NDK_HOME", ndkRoot)
+                    put("ANDROID_NDK_ROOT", ndkRoot)
+                    // Keep host CC/CXX pointed at GCC by default for Node/Graft. Expose the
+                    // selected NDK's matching API wrappers separately for explicit cross-builds.
+                    val ndkApis = ndkBin.listFiles().orEmpty().mapNotNull { executable ->
+                        Regex("""^aarch64-linux-android(\d+)-clang$""")
+                            .matchEntire(executable.name)?.groupValues?.get(1)?.toIntOrNull()
+                    }.distinct().sorted()
+                    val requestedNdkApi = selectedApi ?: 21
+                    val ndkApi = ndkApis.filter { api -> api <= requestedNdkApi }.maxOrNull()
+                        ?: ndkApis.minOrNull()
+                    ndkApi?.let { api ->
+                        val androidCc = File(ndkBin, "aarch64-linux-android$api-clang")
+                        val androidCxx = File(ndkBin, "aarch64-linux-android$api-clang++")
+                        if (androidCc.canExecute() && androidCxx.canExecute()) {
+                            put("ANDROID_CC", androidCc.absolutePath)
+                            put("ANDROID_CXX", androidCxx.absolutePath)
+                            put("ANDROID_NDK_API", api.toString())
+                        }
+                    }
+                    listOf("llvm-ar" to "ANDROID_AR", "llvm-ranlib" to "ANDROID_RANLIB", "llvm-strip" to "ANDROID_STRIP")
+                        .forEach { (binary, key) ->
+                            File(ndkBin, binary).takeIf { it.canExecute() }?.let { put(key, it.absolutePath) }
+                        }
                 }
                 selectedApi?.let {
                     put("ANDROID_PLATFORM_API", it.toString())
