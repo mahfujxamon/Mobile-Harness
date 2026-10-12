@@ -10,10 +10,12 @@ import com.jarves.mh.model.ProviderProfile
 import com.jarves.mh.model.RuntimeEvent
 import com.jarves.mh.model.ToolRequest
 import java.io.File
+import java.io.RandomAccessFile
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
@@ -106,58 +108,42 @@ class CodexRuntimeBridge(
             process = running
             activeProcess = running
             val output = StringBuilder()
-            running.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    if (userStopRequested) {
-                        running.destroy()
-                        return@forEach
+            val native = running as? NativeSpawnProcess
+                ?: error("Unsupported Android runtime process")
+            var outputOffset = 0L
+            var pendingOutput = ""
+            var discardingOversizedLine = false
+            while (running.isAlive || native.outputFile.length() > outputOffset) {
+                val file = native.outputFile
+                if (file.length() > outputOffset) {
+                    RandomAccessFile(file, "r").use { input ->
+                        input.seek(outputOffset)
+                        val available = (input.length() - outputOffset).coerceAtMost(256 * 1024).toInt()
+                        val bytes = ByteArray(available)
+                        input.readFully(bytes)
+                        outputOffset += available
+                        pendingOutput += bytes.toString(Charsets.UTF_8)
                     }
-                    if (line.isBlank()) return@forEach
-                    val event = runCatching { JSONObject(line) }.getOrNull()
-                    if (event == null) {
-                        appendBounded(output, line)
-                        eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, "Codex CLI", line.take(1_000)))
-                        return@forEach
+                    val parts = pendingOutput.replace('\r', '\n').split('\n')
+                    pendingOutput = parts.last()
+                    for (raw in parts.dropLast(1)) {
+                        if (raw.length > 128 * 1024) {
+                            discardingOversizedLine = true
+                            continue
+                        }
+                        if (discardingOversizedLine) {
+                            discardingOversizedLine = false
+                            continue
+                        }
+                        handleOutputLine(sessionId, raw, output)
                     }
-                    when (event.optString("type")) {
-                        "item.completed", "item.updated" -> {
-                            val item = event.optJSONObject("item") ?: return@forEach
-                            when (item.optString("type")) {
-                                "agent_message" -> {
-                                    val text = item.optString("text")
-                                    if (text.isNotBlank()) {
-                                        appendBounded(output, text)
-                                        eventBus.emit(RuntimeEvent.AssistantDelta(sessionId, text))
-                                    }
-                                }
-                                "command_execution" -> eventBus.emit(
-                                    RuntimeEvent.ToolCompleted(
-                                        sessionId,
-                                        "Shell",
-                                        item.optString("aggregated_output").ifBlank { item.optString("command") }.take(1_000),
-                                    ),
-                                )
-                                "reasoning" -> eventBus.emit(RuntimeEvent.ReasoningProgress(sessionId, 1))
-                            }
-                        }
-                        "item.started" -> {
-                            val item = event.optJSONObject("item")
-                            if (item != null) {
-                                eventBus.emit(
-                                    RuntimeEvent.ToolStarted(
-                                        sessionId,
-                                        item.optString("type", "Codex task"),
-                                        item.optString("command").ifBlank { item.optString("text") }.take(1_000),
-                                    ),
-                                )
-                            }
-                        }
-                        "error", "turn.failed" -> {
-                            val message = event.optString("message").ifBlank { event.optJSONObject("error")?.optString("message").orEmpty() }
-                            if (message.isNotBlank()) appendBounded(output, message)
-                        }
-                    }
+                } else {
+                    delay(60)
                 }
+                if (userStopRequested && running.isAlive) running.destroy()
+            }
+            if (pendingOutput.isNotBlank() && !discardingOversizedLine) {
+                handleOutputLine(sessionId, pendingOutput, output)
             }
             val exit = running.waitFor()
             if (userStopRequested) throw IllegalStateException("Stopped by user")
@@ -187,6 +173,54 @@ class CodexRuntimeBridge(
             activeSessionId = null
         }
         sessionId
+    }
+
+    private suspend fun handleOutputLine(sessionId: String, line: String, output: StringBuilder) {
+        if (line.isBlank()) return
+        val event = runCatching { JSONObject(line) }.getOrNull()
+        if (event == null) {
+            appendBounded(output, line)
+            eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, "Codex CLI", line.take(1_000)))
+            return
+        }
+        when (event.optString("type")) {
+            "item.completed", "item.updated" -> {
+                val item = event.optJSONObject("item") ?: return
+                when (item.optString("type")) {
+                    "agent_message" -> {
+                        val text = item.optString("text")
+                        if (text.isNotBlank()) {
+                            appendBounded(output, text)
+                            eventBus.emit(RuntimeEvent.AssistantDelta(sessionId, text))
+                        }
+                    }
+                    "command_execution" -> eventBus.emit(
+                        RuntimeEvent.ToolCompleted(
+                            sessionId,
+                            "Shell",
+                            item.optString("aggregated_output").ifBlank { item.optString("command") }.take(1_000),
+                        ),
+                    )
+                    "reasoning" -> eventBus.emit(RuntimeEvent.ReasoningProgress(sessionId, 1))
+                }
+            }
+            "item.started" -> {
+                val item = event.optJSONObject("item")
+                if (item != null) eventBus.emit(
+                    RuntimeEvent.ToolStarted(
+                        sessionId,
+                        item.optString("type", "Codex task"),
+                        item.optString("command").ifBlank { item.optString("text") }.take(1_000),
+                    ),
+                )
+            }
+            "error", "turn.failed" -> {
+                val message = event.optString("message").ifBlank {
+                    event.optJSONObject("error")?.optString("message").orEmpty()
+                }
+                if (message.isNotBlank()) appendBounded(output, message)
+            }
+        }
     }
 
     private fun appendBounded(target: StringBuilder, text: String) {
