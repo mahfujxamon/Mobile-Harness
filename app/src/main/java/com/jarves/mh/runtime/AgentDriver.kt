@@ -86,6 +86,7 @@ class AgentRegistry(drivers: List<AgentDriver>) {
                     codex,
                     setOf(
                         AgentCapability.API_KEY,
+                        AgentCapability.ACCOUNT_LOGIN,
                         AgentCapability.PROVIDER_PICKER,
                         AgentCapability.MODEL_PICKER,
                         AgentCapability.INTERACTIVE_APPROVALS,
