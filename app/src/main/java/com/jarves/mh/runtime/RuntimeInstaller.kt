@@ -2029,6 +2029,9 @@ class RuntimeInstaller(private val context: Context) {
                 selectedApi?.let {
                     put("ANDROID_PLATFORM_API", it.toString())
                     put("ANDROID_COMPILE_SDK", it.toString())
+                    put("ANDROID_PLATFORM", "android-$it")
+                    // FFmpeg and several legacy NDK build scripts read API directly.
+                    put("API", it.toString())
                 }
                 // GCC 10 remains installed for Node 24 / Graft C++20 addons, while legacy builds
                 // may select another installed compiler from Settings.
