@@ -1114,13 +1114,13 @@ fun AgentScreen(
                                     openRouterProviderOrder = openRouterProviderOrder,
                                     openRouterAllowFallbacks = openRouterAllowFallbacks,
                                 )
-                                if (kind == ProviderKind.CLAUDE) {
+                                if (kind == ProviderKind.CLAUDE || state.agentKind == AgentKind.CODEX_CLI) {
                                     onSaveProvider(profile, apiKey.trim())
-                                    status = context.getString(R.string.st_claude_token_saved_status)
+                                    status = if (state.agentKind == AgentKind.CODEX_CLI) context.getString(R.string.agent_codex_provider_saved) else context.getString(R.string.st_claude_token_saved_status)
                                     statusOk = true
                                     activeKeyId?.let {
                                         keyConnectionStatuses = keyConnectionStatuses +
-                                            (it to KeyConnectionStatus(context.getString(R.string.st_subscription_token_saved), true, label = context.getString(R.string.st_saved)))
+                                            (it to KeyConnectionStatus(if (state.agentKind == AgentKind.CODEX_CLI) context.getString(R.string.agent_codex_provider_saved) else context.getString(R.string.st_subscription_token_saved), true, label = context.getString(R.string.st_saved)))
                                     }
                                 } else when (val result = onValidateProvider(profile, apiKey.trim(), models)) {
                                     is ConnectionValidation.Success -> {
