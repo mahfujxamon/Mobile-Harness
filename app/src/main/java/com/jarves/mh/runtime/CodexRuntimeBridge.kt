@@ -59,7 +59,7 @@ class CodexRuntimeBridge(
             check(apiKey.isNotBlank() || chatLoginExists) {
                 "Add an OpenAI API key in Settings, or run 'codex login' in the terminal first."
             }
-            if (provider.kind == ProviderKind.CUSTOM) {
+            if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                 check(provider.baseUrl.isNotBlank()) {
                     "Set the OpenAI-compatible API base URL in Settings → AI provider."
                 }
