@@ -185,7 +185,7 @@ fun SettingsScreen(
     toolchainPendingRemoval?.let { action ->
         val label = when (action) {
             is ToolchainAction.RemoveGcc -> stringResource(R.string.toolchains_gcc_version, action.version)
-            is ToolchainAction.RemoveSdkPlatform -> "Android SDK API \${action.api}"
+            is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api}"
             is ToolchainAction.RemoveCmake -> if (action.version == "system") {
                 stringResource(R.string.toolchains_system_cmake)
             } else {
