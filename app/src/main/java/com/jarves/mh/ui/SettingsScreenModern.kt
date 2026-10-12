@@ -152,6 +152,7 @@ fun SettingsScreen(
     var terminalCleared by remember { mutableStateOf(false) }
     var showReliabilityHelp by rememberSaveable { mutableStateOf(false) }
     var stackPendingRemoval by remember { mutableStateOf<DevStack?>(null) }
+    var toolchainPendingRemoval by remember { mutableStateOf<ToolchainAction?>(null) }
     var gccVersionInput by rememberSaveable { mutableStateOf("9") }
     var sdkApiInput by rememberSaveable { mutableStateOf("35") }
     var cmakeVersionInput by rememberSaveable { mutableStateOf("3.31.12") }
@@ -177,6 +178,37 @@ fun SettingsScreen(
                 ) { Text(stringResource(R.string.action_remove), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { stackPendingRemoval = null }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+
+
+    toolchainPendingRemoval?.let { action ->
+        val label = when (action) {
+            is ToolchainAction.RemoveGcc -> stringResource(R.string.toolchains_gcc_version, action.version)
+            is ToolchainAction.RemoveSdkPlatform -> "Android SDK API \${action.api}"
+            is ToolchainAction.RemoveCmake -> if (action.version == "system") {
+                stringResource(R.string.toolchains_system_cmake)
+            } else {
+                stringResource(R.string.toolchains_cmake_version, action.version)
+            }
+            is ToolchainAction.RemoveNdk -> stringResource(R.string.toolchains_ndk_version, action.version)
+            else -> stringResource(R.string.toolchains_title)
+        }
+        AlertDialog(
+            onDismissRequest = { toolchainPendingRemoval = null },
+            title = { Text(stringResource(R.string.toolchains_remove_dialog_title)) },
+            text = { Text(stringResource(R.string.toolchains_remove_dialog_desc, label)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        toolchainPendingRemoval = null
+                        onToolchainAction(action)
+                    },
+                ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { toolchainPendingRemoval = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
         )
     }
 
@@ -487,7 +519,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("GCC/G++ ${version}", fontWeight = FontWeight.SemiBold)
+                                    Text(stringResource(R.string.toolchains_gcc_version, version), fontWeight = FontWeight.SemiBold)
                                     if (version == inventory.selectedGccVersion) {
                                         Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                                     }
@@ -500,7 +532,7 @@ fun SettingsScreen(
                                 }
                                 if (version != "10" && version != inventory.selectedGccVersion) {
                                     TextButton(
-                                        onClick = { onToolchainAction(ToolchainAction.RemoveGcc(version)) },
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveGcc(version) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
                                 }
@@ -546,7 +578,7 @@ fun SettingsScreen(
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
                                     TextButton(
-                                        onClick = { onToolchainAction(ToolchainAction.RemoveSdkPlatform(api)) },
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveSdkPlatform(api) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
                                 }
@@ -592,16 +624,18 @@ fun SettingsScreen(
                         ) { Text(stringResource(R.string.toolchains_install) + " CMake") }
                         inventory.installedCmakeVersions.forEach { version ->
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("CMake $version", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                Text(if (version == "system") stringResource(R.string.toolchains_system_cmake) else stringResource(R.string.toolchains_cmake_version, version), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 if (version != inventory.selectedCmakeVersion) {
                                     TextButton(
                                         onClick = { onToolchainAction(ToolchainAction.SelectCmake(version)) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
-                                    TextButton(
-                                        onClick = { onToolchainAction(ToolchainAction.RemoveCmake(version)) },
-                                        enabled = !state.toolchainManagerBusy,
-                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    if (version != "system") {
+                                        TextButton(
+                                            onClick = { toolchainPendingRemoval = ToolchainAction.RemoveCmake(version) },
+                                            enabled = !state.toolchainManagerBusy,
+                                        ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    }
                                 }
                             }
                         }
@@ -645,14 +679,14 @@ fun SettingsScreen(
                         ) { Text(stringResource(R.string.toolchains_install) + " NDK") }
                         inventory.installedNdkVersions.forEach { version ->
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("NDK $version", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.toolchains_ndk_version, version), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                                 if (version != inventory.selectedNdkVersion) {
                                     TextButton(
                                         onClick = { onToolchainAction(ToolchainAction.SelectNdk(version)) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
                                     TextButton(
-                                        onClick = { onToolchainAction(ToolchainAction.RemoveNdk(version)) },
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveNdk(version) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
                                 }
