@@ -45,6 +45,23 @@ to the phone used to build them. They do not support x86/x86_64 emulators or
 32-bit-only ARM devices. PocketDev must continue checking for `arm64-v8a` before
 installation.
 
+## Native npm packages on Android ARM64
+
+The Ubuntu guest uses Node.js 24. Native npm dependencies (for example, older
+Tree-sitter bindings) may invoke node-gyp and compile against Node's V8 headers.
+Select the **C/C++** developer stack before installing packages that compile
+native addons. That stack installs GCC/G++ 10, Python 3, Make, CMake, and GDB.
+The runtime exports npm_config_python=/usr/bin/python3; when GCC/G++ 10 are
+installed it also exports CC=/usr/bin/gcc-10, CXX=/usr/bin/g++-10, and
+CXXFLAGS=-std=gnu++20 to every newly started guest process. A command can
+override these defaults with its own environment assignments.
+
+This removes the common Node 24/C++20 configuration failure, but cannot make
+every third-party package portable: dependencies that require x86 binaries,
+unsupported system libraries, incompatible Node APIs, or unavailable upstream
+ARM64 builds can still fail. Build tools are guest packages; installing the
+C/C++ stack may require network access and additional storage.
+
 ## Release requirements
 
 1. Build on a clean ARM64 Linux environment or a rooted ARM64 Android phone
