@@ -1235,7 +1235,21 @@ class RuntimeInstaller(private val context: Context) {
      * Saves the current global selections as overrides for one Mobile Harness project.
      * The profile stays outside the repository, so it cannot accidentally be committed.
      */
-    fun saveProjectToolchainProfile(projectId: String) {
+    fun loadProjectToolchainProfile(projectId: String): ToolchainProjectProfile? = runCatching {
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (!profileFile.isFile) return@runCatching null
+        val profile = JSONObject(profileFile.readText())
+        if (profile.optInt("schemaVersion", 0) != 1) return@runCatching null
+        val inventory = toolchainInventory()
+        ToolchainProjectProfile(
+            gccVersion = profile.optString("gcc").takeIf { it in inventory.installedGccVersions },
+            sdkApi = profile.optInt("sdkApi", -1).takeIf { it in inventory.installedSdkPlatforms },
+            cmakeVersion = profile.optString("cmake").takeIf { it in inventory.installedCmakeVersions },
+            ndkVersion = profile.optString("ndk").takeIf { it in inventory.installedNdkVersions },
+        )
+    }.getOrNull()
+
+    fun saveProjectToolchainProfile(projectId: String, selections: ToolchainProjectProfile) {
         val profileFile = projectToolchainProfileFile(projectId)
         val workspaceRoot = File(context.filesDir, "workspaces").canonicalFile
         val projectRoot = File(workspaceRoot, projectId).canonicalFile
@@ -1244,12 +1258,28 @@ class RuntimeInstaller(private val context: Context) {
         }
         val inventory = toolchainInventory()
         require(inventory.runtimeAvailable) { "Install the Linux runtime before saving a toolchain profile." }
-        val profile = JSONObject().put("schemaVersion", 1)
-        inventory.selectedGccVersion.takeIf { it in inventory.installedGccVersions }?.let { profile.put("gcc", it) }
-        inventory.selectedSdkApi?.let { profile.put("sdkApi", it) }
-        inventory.selectedCmakeVersion?.let { profile.put("cmake", it) }
-        inventory.selectedNdkVersion?.let { profile.put("ndk", it) }
+        require(
+            selections.gccVersion == null || selections.gccVersion in inventory.installedGccVersions,
+        ) { "Selected project GCC/G++ version is not installed." }
+        require(
+            selections.sdkApi == null || selections.sdkApi in inventory.installedSdkPlatforms,
+        ) { "Selected project Android SDK API is not installed." }
+        require(
+            selections.cmakeVersion == null || selections.cmakeVersion in inventory.installedCmakeVersions,
+        ) { "Selected project CMake version is not installed as a compatible ARM64 toolchain." }
+        require(
+            selections.ndkVersion == null || selections.ndkVersion in inventory.installedNdkVersions,
+        ) { "Selected project NDK is not installed as a compatible ARM64 toolchain." }
+        require(
+            selections.gccVersion != null || selections.sdkApi != null ||
+                selections.cmakeVersion != null || selections.ndkVersion != null,
+        ) { "Choose at least one project override, or clear the profile to use global defaults." }
 
+        val profile = JSONObject().put("schemaVersion", 1)
+        selections.gccVersion?.let { profile.put("gcc", it) }
+        selections.sdkApi?.let { profile.put("sdkApi", it) }
+        selections.cmakeVersion?.let { profile.put("cmake", it) }
+        selections.ndkVersion?.let { profile.put("ndk", it) }
         profileFile.parentFile?.mkdirs()
         val temporary = File(profileFile.parentFile, profileFile.name + ".tmp")
         temporary.writeText(profile.toString(2))
