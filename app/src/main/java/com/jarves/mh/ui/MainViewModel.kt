@@ -2852,9 +2852,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 current.copy(
                     toolchainInventory = refreshed?.inventory ?: current.toolchainInventory,
                     toolchainProfileProjectId = current.activeProject?.id,
-                    toolchainProfileSaved = if (sameProject) refreshed.projectProfileSaved
+                    toolchainProfileSaved = if (sameProject) refreshed?.projectProfileSaved == true
                         else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProfileSaved else false,
-                    toolchainProjectProfile = if (sameProject) refreshed.projectProfile
+                    toolchainProjectProfile = if (sameProject) refreshed?.projectProfile
                         else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProjectProfile else null,
                     toolchainManagerBusy = false,
                     toolchainManagerProgress = 0f,
@@ -2948,9 +2948,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
                     ),
                     toolchainProfileProjectId = state.activeProject?.id,
-                    toolchainProfileSaved = if (sameProject) refreshed.projectProfileSaved
+                    toolchainProfileSaved = if (sameProject) refreshed?.projectProfileSaved == true
                         else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProfileSaved else false,
-                    toolchainProjectProfile = if (sameProject) refreshed.projectProfile
+                    toolchainProjectProfile = if (sameProject) refreshed?.projectProfile
                         else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProjectProfile else null,
                     toastMessage = result.fold(
                         onSuccess = { toolchainActionSuccessMessage(action) },
