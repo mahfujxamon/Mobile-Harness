@@ -76,7 +76,7 @@ class CodexRuntimeBridge(
                 "NO_COLOR" to "1",
             )
             if (apiKey.isNotBlank()) environment["OPENAI_API_KEY"] = apiKey
-            if (provider.kind == ProviderKind.CUSTOM) environment["OPENAI_BASE_URL"] = provider.baseUrl.trimEnd('/')
+            if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) environment["OPENAI_BASE_URL"] = provider.baseUrl.trimEnd('/')
             val history = conversationHistory.takeLast(8).joinToString("\n\n") { message ->
                 (if (message.fromUser) "User: " else "Assistant: ") + message.text.take(8_000)
             }
