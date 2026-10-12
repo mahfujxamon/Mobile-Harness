@@ -104,12 +104,13 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.ui.res.stringResource
 import com.jarves.mh.R
 import com.jarves.mh.runtime.AntigravityAuthStatus
+import com.jarves.mh.runtime.ToolchainAction
 import com.jarves.mh.ui.theme.AppLanguage
 import com.jarves.mh.ui.theme.AppThemeMode
 import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.launch
 
-private enum class SettingsSection { APPEARANCE, LANGUAGE, TOOLS, RUNTIME, DIAGNOSTICS, UPDATE_CHANNEL }
+private enum class SettingsSection { APPEARANCE, LANGUAGE, TOOLS, TOOLCHAINS, RUNTIME, DIAGNOSTICS, UPDATE_CHANNEL }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +130,7 @@ fun SettingsScreen(
     onRemoveApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onInstallDevStack: (DevStack) -> Unit = {},
     onRemoveDevStack: (DevStack) -> Unit = {},
+    onToolchainAction: (ToolchainAction) -> Unit = {},
     onInstallAgent: (AgentKind) -> Unit = {},
     onCheckAgentUpdates: () -> Unit = {},
     onUpdateAgent: (AgentKind) -> Unit = {},
@@ -150,6 +152,14 @@ fun SettingsScreen(
     var terminalCleared by remember { mutableStateOf(false) }
     var showReliabilityHelp by rememberSaveable { mutableStateOf(false) }
     var stackPendingRemoval by remember { mutableStateOf<DevStack?>(null) }
+    var gccVersionInput by rememberSaveable { mutableStateOf("9") }
+    var sdkApiInput by rememberSaveable { mutableStateOf("35") }
+    var cmakeVersionInput by rememberSaveable { mutableStateOf("3.31.12") }
+    var cmakeUrlInput by rememberSaveable { mutableStateOf("") }
+    var cmakeShaInput by rememberSaveable { mutableStateOf("") }
+    var ndkVersionInput by rememberSaveable { mutableStateOf("") }
+    var ndkUrlInput by rememberSaveable { mutableStateOf("") }
+    var ndkShaInput by rememberSaveable { mutableStateOf("") }
 
     stackPendingRemoval?.let { stack ->
         AlertDialog(
@@ -393,6 +403,261 @@ fun SettingsScreen(
                             )
                         }
                         if (index != DevStack.entries.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+                }
+            }
+
+
+            item {
+                val inventory = state.toolchainInventory
+                SettingsAccordion(
+                    title = stringResource(R.string.toolchains_title),
+                    subtitle = stringResource(R.string.toolchains_subtitle),
+                    icon = Icons.Default.Memory,
+                    expanded = expanded == SettingsSection.TOOLCHAINS,
+                    onClick = {
+                        val opening = expanded != SettingsSection.TOOLCHAINS
+                        toggle(SettingsSection.TOOLCHAINS)
+                        if (opening) onToolchainAction(ToolchainAction.Refresh)
+                    },
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            stringResource(R.string.toolchains_description),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            onClick = { onToolchainAction(ToolchainAction.Refresh) },
+                            enabled = !state.toolchainManagerBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_refresh)) }
+                        if (state.toolchainManagerBusy) {
+                            if (state.toolchainManagerProgress > 0f) {
+                                LinearProgressIndicator(
+                                    progress = { state.toolchainManagerProgress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = PocketOrange,
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = PocketOrange)
+                            }
+                        }
+                        state.toolchainManagerMessage?.let {
+                            Text(
+                                it,
+                                fontSize = 12.sp,
+                                color = if (state.toolchainManagerBusy) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                            )
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_gcc), fontWeight = FontWeight.Bold)
+                        Text(
+                            stringResource(R.string.toolchains_gcc_supported),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.toolchains_active, "GCC/G++ \${inventory.selectedGccVersion}"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = gccVersionInput,
+                                onValueChange = { gccVersionInput = it.filter(Char::isDigit).take(2) },
+                                label = { Text(stringResource(R.string.toolchains_version)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                            val requestedGcc = gccVersionInput.trim()
+                            if (requestedGcc in listOf("9", "10") && requestedGcc !in inventory.installedGccVersions) {
+                                Button(
+                                    onClick = { onToolchainAction(ToolchainAction.InstallGcc(requestedGcc)) },
+                                    enabled = !state.toolchainManagerBusy,
+                                ) { Text(stringResource(R.string.toolchains_install)) }
+                            }
+                        }
+                        inventory.installedGccVersions.forEach { version ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("GCC/G++ \${version}", fontWeight = FontWeight.SemiBold)
+                                    if (version == inventory.selectedGccVersion) {
+                                        Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                if (version != inventory.selectedGccVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectGcc(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                }
+                                if (version != "10" && version != inventory.selectedGccVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.RemoveGcc(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.toolchains_gcc10_protected),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_sdk), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_sdk_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedSdkApi?.let { "API $it" } ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = sdkApiInput,
+                                onValueChange = { sdkApiInput = it.filter(Char::isDigit).take(3) },
+                                label = { Text(stringResource(R.string.toolchains_sdk_api_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                            val requestedApi = sdkApiInput.toIntOrNull()
+                            if (requestedApi != null && requestedApi in 21..100 && requestedApi !in inventory.installedSdkPlatforms) {
+                                Button(
+                                    onClick = { onToolchainAction(ToolchainAction.InstallSdkPlatform(requestedApi)) },
+                                    enabled = !state.toolchainManagerBusy && DevStack.ANDROID in state.installedDevStacks,
+                                ) { Text(stringResource(R.string.toolchains_install)) }
+                            }
+                        }
+                        inventory.installedSdkPlatforms.forEach { api ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Android API $api", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (api != inventory.selectedSdkApi) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectSdkPlatform(api)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.RemoveSdkPlatform(api)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_cmake), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_cmake_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedCmakeVersion ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = cmakeVersionInput,
+                            onValueChange = { cmakeVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(32) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = cmakeUrlInput,
+                            onValueChange = { cmakeUrlInput = it.take(2048) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_url_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = cmakeShaInput,
+                            onValueChange = { cmakeShaInput = it.filter(Char::isLetterOrDigit).take(64) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_sha_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val requestedCmake = cmakeVersionInput.trim()
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallCmake(requestedCmake, cmakeUrlInput.trim(), cmakeShaInput.trim())) },
+                            enabled = !state.toolchainManagerBusy && requestedCmake.matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                requestedCmake !in inventory.installedCmakeVersions &&
+                                (cmakeUrlInput.isBlank() || (cmakeUrlInput.startsWith("https://") && cmakeShaInput.trim().matches(Regex("""^[a-fA-F0-9]{64}$""")))),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " CMake") }
+                        inventory.installedCmakeVersions.forEach { version ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("CMake $version", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (version != inventory.selectedCmakeVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectCmake(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.RemoveCmake(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_ndk), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_ndk_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedNdkVersion ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = ndkVersionInput,
+                            onValueChange = { ndkVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(48) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = ndkUrlInput,
+                            onValueChange = { ndkUrlInput = it.take(2048) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_url_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = ndkShaInput,
+                            onValueChange = { ndkShaInput = it.filter(Char::isLetterOrDigit).take(64) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_sha_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallNdk(ndkVersionInput.trim(), ndkUrlInput.trim(), ndkShaInput.trim())) },
+                            enabled = !state.toolchainManagerBusy && ndkVersionInput.trim().matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                ndkVersionInput.trim() !in inventory.installedNdkVersions &&
+                                ndkUrlInput.startsWith("https://") &&
+                                ndkShaInput.trim().matches(Regex("""^[a-fA-F0-9]{64}$""")),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " NDK") }
+                        inventory.installedNdkVersions.forEach { version ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("NDK $version", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (version != inventory.selectedNdkVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectNdk(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.RemoveNdk(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
                     }
                 }
             }
