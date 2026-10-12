@@ -41,4 +41,6 @@ sealed class ToolchainAction {
     ) : ToolchainAction()
     data class SelectNdk(val version: String) : ToolchainAction()
     data class RemoveNdk(val version: String) : ToolchainAction()
+    data class SaveProjectProfile(val projectId: String) : ToolchainAction()
+    data class ClearProjectProfile(val projectId: String) : ToolchainAction()
 }
