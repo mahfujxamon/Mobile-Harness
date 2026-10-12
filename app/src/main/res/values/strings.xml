@@ -394,7 +394,7 @@
     <string name="toolchains_section_ndk">Android NDK (Linux ARM64 host)</string>
     <string name="toolchains_version">Version</string>
     <string name="toolchains_install">Install</string>
-    <string name="toolchains_select">Use for new terminal sessions</string>
+    <string name="toolchains_select">Use</string>
     <string name="toolchains_remove">Remove</string>
     <string name="toolchains_active">Selected: %1$s</string>
     <string name="toolchains_none_installed">No compatible versions detected yet. Refresh after installing the related toolchain.</string>
@@ -412,5 +412,12 @@
     <string name="toolchains_ndk_note">Google's standard Linux NDK archives are x86_64 and cannot run here. Use a trusted Linux/AArch64-host NDK build; invalid or mismatched archives are rejected.</string>
     <string name="toolchains_busy">A toolchain operation is already running.</string>
     <string name="toolchains_remove_selected_blocked">Select a different version before removing the currently selected toolchain.</string>
+    <string name="toolchains_remove_dialog_title">Remove toolchain version?</string>
+    <string name="toolchains_remove_dialog_desc">Remove %1$s? Projects or scripts that explicitly require this version may stop building. The selected version and essential GCC 10 fallback are protected.</string>
+    <string name="toolchains_system_cmake">CMake (Ubuntu system package)</string>
+    <string name="toolchains_gcc_version">GCC/G++ %1$s</string>
+    <string name="toolchains_cmake_version">CMake %1$s</string>
+    <string name="toolchains_ndk_version">NDK %1$s</string>
+
 
 </resources>
