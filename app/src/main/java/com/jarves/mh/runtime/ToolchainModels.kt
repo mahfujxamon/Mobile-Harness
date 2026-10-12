@@ -67,6 +67,7 @@ sealed class ToolchainAction {
         val projectId: String,
         val gccVersion: String? = null,
         val sdkApi: Int? = null,
+        val buildToolsVersion: String? = null,
         val cmakeVersion: String? = null,
         val ndkVersion: String? = null,
     ) : ToolchainAction()
