@@ -93,6 +93,20 @@ class CodexRuntimeBridge(
                 add("--json")
                 add("--dangerously-bypass-approvals-and-sandbox")
                 add("--skip-git-repo-check")
+                if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
+                    val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
+                    val wireApi = if (provider.dshApi == "openai-completions") "chat" else "responses"
+                    add("--config")
+                    add("model_provider=\"mobile_harness\"")
+                    add("--config")
+                    add("model_providers.mobile_harness.name=\"Mobile Harness\"")
+                    add("--config")
+                    add("model_providers.mobile_harness.base_url=\"$baseUrl\"")
+                    add("--config")
+                    add("model_providers.mobile_harness.wire_api=\"$wireApi\"")
+                    add("--config")
+                    add("model_providers.mobile_harness.requires_openai_auth=true")
+                }
                 add("--model")
                 add(provider.model.ifBlank { "gpt-5-codex" })
                 add(fullPrompt)
