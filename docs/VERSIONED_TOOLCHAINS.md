@@ -27,3 +27,8 @@ For Gradle builds, the runtime supplies the selected Build Tools `aapt2` path th
 - Toolchain removal can break projects that explicitly depend on a removed version. Review the confirmation dialog and keep old versions until every dependent project has been migrated.
 - Compiler/SDK actions require an already installed runtime; Android SDK platform actions also require the Android stack and its `sdkmanager`.
 - Existing terminal processes keep the environment with which they started. Open a new terminal/build process after changing the selected version.
+
+
+## Codex CLI agent
+
+The Codex CLI is available as an optional agent in Settings → Coding agent. Install it there to add the official `@openai/codex` npm package to the ARM64 PRoot runtime. It uses the shared agent picker and chat UI. Configure an OpenAI-compatible endpoint and API key under the Codex agent's Custom API provider, or run `codex login` from the in-app terminal to authenticate with a supported ChatGPT account. The CLI's `codex exec --json` output is translated into the app's shared activity/chat events. The runtime currently uses Codex's non-interactive execution mode; review changes in the normal Mobile Harness diff UI.
