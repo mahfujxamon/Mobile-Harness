@@ -3152,6 +3152,7 @@ private fun ProviderCredentialsStep(
     var statusOk by remember { mutableStateOf(false) }
     var showModels by rememberSaveable { mutableStateOf(false) }
     var modelSearch by rememberSaveable { mutableStateOf("") }
+    var useCodexApiKey by rememberSaveable { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Custom API servers that are self-hosted (llama.cpp, LM Studio…) often need no key.
     val hasKey = apiKey.isNotBlank() || hasStoredSecret || provider == ProviderKind.CUSTOM
@@ -3170,6 +3171,57 @@ private fun ProviderCredentialsStep(
             onSave = onSave,
             onChangeAgent = onChangeAgent,
         )
+        return
+    }
+
+    if (agentKind == AgentKind.CODEX_CLI && !useCodexApiKey) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().imePadding(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Text(stringResource(R.string.provider_codex_chatgpt_title), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.provider_codex_chatgpt_desc),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 21.sp,
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        stringResource(R.string.provider_codex_device_command),
+                        modifier = Modifier.padding(14.dp),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Text(
+                    "This uses the official Codex CLI device sign-in. Complete the browser verification, then return to Mobile-Harness. Your login is stored in the private runtime.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+            item {
+                Button(
+                    onClick = onSave,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                ) {
+                    Text(stringResource(R.string.provider_codex_continue))
+                }
+                OutlinedButton(
+                    onClick = { useCodexApiKey = true },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                ) {
+                    Text(stringResource(R.string.provider_codex_api_instead))
+                }
+            }
+        }
         return
     }
 
