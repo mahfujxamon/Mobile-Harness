@@ -206,6 +206,7 @@ fun SettingsScreen(
         val label = when (action) {
             is ToolchainAction.RemoveGcc -> stringResource(R.string.toolchains_gcc_version, action.version)
             is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api}"
+            is ToolchainAction.RemoveBuildTools -> stringResource(R.string.toolchains_buildtools_version, action.version)
             is ToolchainAction.RemoveCmake -> if (action.version == "system") {
                 stringResource(R.string.toolchains_system_cmake)
             } else {
@@ -737,13 +738,20 @@ fun SettingsScreen(
                                         onClick = { onToolchainAction(ToolchainAction.SelectBuildTools(version)) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
-                                    TextButton(
-                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveBuildTools(version) },
-                                        enabled = !state.toolchainManagerBusy,
-                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    if (version != "35.0.0") {
+                                        TextButton(
+                                            onClick = { toolchainPendingRemoval = ToolchainAction.RemoveBuildTools(version) },
+                                            enabled = !state.toolchainManagerBusy,
+                                        ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    }
                                 }
                             }
                         }
+                        Text(
+                            stringResource(R.string.toolchains_buildtools_protected),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
 
                         HorizontalDivider()
                         Text(stringResource(R.string.toolchains_section_cmake), fontWeight = FontWeight.Bold)
