@@ -1226,6 +1226,62 @@ class RuntimeInstaller(private val context: Context) {
         )
     }
 
+
+    /** True when this project has a saved version override profile in app-private storage. */
+    fun hasProjectToolchainProfile(projectId: String): Boolean =
+        runCatching { projectToolchainProfileFile(projectId).isFile }.getOrDefault(false)
+
+    /**
+     * Saves the current global selections as overrides for one Mobile Harness project.
+     * The profile stays outside the repository, so it cannot accidentally be committed.
+     */
+    fun saveProjectToolchainProfile(projectId: String) {
+        val profileFile = projectToolchainProfileFile(projectId)
+        val workspaceRoot = File(context.filesDir, "workspaces").canonicalFile
+        val projectRoot = File(workspaceRoot, projectId).canonicalFile
+        require(projectRoot.parentFile == workspaceRoot && projectRoot.isDirectory) {
+            "The selected project workspace is unavailable; open the project again and retry."
+        }
+        val inventory = toolchainInventory()
+        require(inventory.runtimeAvailable) { "Install the Linux runtime before saving a toolchain profile." }
+        val profile = JSONObject().put("schemaVersion", 1)
+        inventory.selectedGccVersion.takeIf { it in inventory.installedGccVersions }?.let { profile.put("gcc", it) }
+        inventory.selectedSdkApi?.let { profile.put("sdkApi", it) }
+        inventory.selectedCmakeVersion?.let { profile.put("cmake", it) }
+        inventory.selectedNdkVersion?.let { profile.put("ndk", it) }
+
+        profileFile.parentFile?.mkdirs()
+        val temporary = File(profileFile.parentFile, "toolchain-profile-${System.nanoTime()}.tmp")
+        temporary.writeText(profile.toString(2))
+        if (profileFile.exists()) check(profileFile.delete()) { "Could not replace project toolchain profile." }
+        check(temporary.renameTo(profileFile)) { "Could not save project toolchain profile." }
+    }
+
+    /** Removes only the saved project override; global selections remain unchanged. */
+    fun clearProjectToolchainProfile(projectId: String) {
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (profileFile.exists()) check(profileFile.delete()) { "Could not remove project toolchain profile." }
+    }
+
+    private fun projectToolchainProfileFile(projectId: String): File {
+        require(Regex("""^[A-Za-z0-9_-]{1,128}$""").matches(projectId)) { "Invalid project identifier." }
+        return File(context.filesDir, "toolchain-profiles/$projectId.json")
+    }
+
+    private fun readProjectToolchainProfile(workspace: File): JSONObject? = runCatching {
+        val workspaceRoot = File(context.filesDir, "workspaces").canonicalFile.toPath()
+        val path = workspace.canonicalFile.toPath()
+        if (!path.startsWith(workspaceRoot)) return@runCatching null
+        val relative = workspaceRoot.relativize(path)
+        if (relative.nameCount < 1) return@runCatching null
+        val projectId = relative.getName(0).toString()
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (!profileFile.isFile) return@runCatching null
+        val profile = JSONObject(profileFile.readText())
+        if (profile.optInt("schemaVersion", 0) != 1) return@runCatching null
+        profile
+    }.getOrNull()
+
     suspend fun installCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
         require(version in SUPPORTED_GCC_VERSIONS) {
             "This Ubuntu 20.04 ARM64 runtime currently manages GCC versions " +
@@ -1994,16 +2050,33 @@ class RuntimeInstaller(private val context: Context) {
                 val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
                 val basePath = "/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                 val sdkRoot = File(rootfs, "root/android-sdk")
-                val selectedCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+                val projectProfile = readProjectToolchainProfile(workspace)
+                val defaultCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+                val projectCmake = projectProfile?.optString("cmake")?.takeIf { version ->
+                    version == "system" || File(sdkRoot, "cmake/$version/bin/cmake").let { executable ->
+                        executable.isFile && executable.canExecute() && isAarch64Elf(executable)
+                    }
+                }
+                val requestedCmake = projectCmake ?: defaultCmake
+                val selectedCmake = requestedCmake?.takeIf { it != "system" }
                     ?.takeIf { File(sdkRoot, "cmake/$it/bin/cmake").let { executable -> executable.isFile && executable.canExecute() && isAarch64Elf(executable) } }
-                val selectedNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
-                    ?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
-                val selectedGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+                val defaultNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
+                val projectNdk = projectProfile?.optString("ndk")?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
+                val selectedNdk = projectNdk ?: defaultNdk?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
+                val defaultGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+                val projectGcc = projectProfile?.optString("gcc")?.takeIf {
+                    File(rootfs, "usr/bin/gcc-$it").canExecute() && File(rootfs, "usr/bin/g++-$it").canExecute()
+                }
+                val selectedGcc = projectGcc ?: defaultGcc
                     ?.takeIf { File(rootfs, "usr/bin/gcc-$it").canExecute() && File(rootfs, "usr/bin/g++-$it").canExecute() }
                     ?: "10"
-                val selectedApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
-                    ?.takeIf { File(sdkRoot, "platforms/android-$it/android.jar").isFile }
-                    ?: 36.takeIf { File(sdkRoot, "platforms/android-36/android.jar").isFile }
+                val defaultApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+                val projectApi = projectProfile?.optInt("sdkApi", -1)?.takeIf {
+                    File(sdkRoot, "platforms/android-$it/android.jar").isFile
+                }
+                val selectedApi = projectApi ?: defaultApi?.takeIf {
+                    File(sdkRoot, "platforms/android-$it/android.jar").isFile
+                } ?: 36.takeIf { File(sdkRoot, "platforms/android-36/android.jar").isFile }
                 val extraPath = buildList {
                     selectedNdk?.let { add("/root/android-sdk/ndk/$it/toolchains/llvm/prebuilt/linux-aarch64/bin") }
                     selectedCmake?.let { add("/root/android-sdk/cmake/$it/bin") }
