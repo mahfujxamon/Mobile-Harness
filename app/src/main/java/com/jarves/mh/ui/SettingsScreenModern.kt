@@ -67,6 +67,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -161,6 +162,10 @@ fun SettingsScreen(
     var ndkVersionInput by rememberSaveable { mutableStateOf("") }
     var ndkUrlInput by rememberSaveable { mutableStateOf("") }
     var ndkShaInput by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(state.activeProject?.id) {
+        onToolchainAction(ToolchainAction.Refresh)
+    }
 
     stackPendingRemoval?.let { stack ->
         AlertDialog(
