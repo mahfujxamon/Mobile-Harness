@@ -47,20 +47,20 @@ installation.
 
 ## Native npm packages on Android ARM64
 
-The Ubuntu guest uses Node.js 24. Native npm dependencies (for example, older
+The Ubuntu guest uses Node.js 24. Native npm dependencies (for example, Graft's
 Tree-sitter bindings) may invoke node-gyp and compile against Node's V8 headers.
-Select the **C/C++** developer stack before installing packages that compile
-native addons. That stack installs GCC/G++ 10, Python 3, Make, CMake, and GDB.
-The runtime exports npm_config_python=/usr/bin/python3; when GCC/G++ 10 are
-installed it also exports CC=/usr/bin/gcc-10, CXX=/usr/bin/g++-10, and
-CXXFLAGS=-std=gnu++20 to every newly started guest process. A command can
-override these defaults with its own environment assignments.
+The C/C++ toolchain is therefore installed automatically during runtime setup:
+GCC/G++ 10, Python 3, Make, CMake, and GDB. The runtime exports
+npm_config_python=/usr/bin/python3 and, when the compilers exist, CC=/usr/bin/gcc-10,
+CXX=/usr/bin/g++-10, and CXXFLAGS=-std=gnu++20 to every newly started guest
+process. A command can override these defaults with its own environment assignments.
 
-This removes the common Node 24/C++20 configuration failure, but cannot make
-every third-party package portable: dependencies that require x86 binaries,
-unsupported system libraries, incompatible Node APIs, or unavailable upstream
-ARM64 builds can still fail. Build tools are guest packages; installing the
-C/C++ stack may require network access and additional storage.
+This handles the common Node 24/C++20 toolchain failure and removes the need for
+users to know which optional stack to select. It cannot guarantee that every
+third-party package builds: some packages lack Linux ARM64 prebuilt binaries
+and must compile from source, while others may have unsupported APIs, system
+libraries, or architectures. A successful npm install is also not proof that
+native postinstall scripts ran; verify the installed CLI by executing it.
 
 ## Release requirements
 
