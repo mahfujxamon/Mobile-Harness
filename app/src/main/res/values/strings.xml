@@ -426,6 +426,15 @@
     <string name="toolchains_profile_inherited">This project currently inherits global toolchain selections.</string>
     <string name="toolchains_profile_save">Save current selections to project</string>
     <string name="toolchains_profile_clear">Use global defaults for this project</string>
+    <string name="toolchains_profile_gcc_override">Project GCC/G++ version</string>
+    <string name="toolchains_profile_sdk_override">Project Android SDK API</string>
+    <string name="toolchains_profile_cmake_override">Project CMake version</string>
+    <string name="toolchains_profile_ndk_override">Project Android NDK version</string>
+    <string name="toolchains_profile_global_default">Global default (%1$s)</string>
+    <string name="toolchains_profile_inherit_global">Inherit global default (%1$s)</string>
+    <string name="toolchains_profile_save_overrides">Save project overrides</string>
+    <string name="toolchains_profile_choose_override">Choose at least one per-project override, or use global defaults.</string>
+
 
 
 
