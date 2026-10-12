@@ -459,7 +459,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            stringResource(R.string.toolchains_active, "GCC/G++ \${inventory.selectedGccVersion}"),
+                            stringResource(R.string.toolchains_active, "GCC/G++ ${inventory.selectedGccVersion}"),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -487,7 +487,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("GCC/G++ \${version}", fontWeight = FontWeight.SemiBold)
+                                    Text("GCC/G++ ${version}", fontWeight = FontWeight.SemiBold)
                                     if (version == inventory.selectedGccVersion) {
                                         Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                                     }
