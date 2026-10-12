@@ -11,6 +11,8 @@ data class ToolchainInventory(
     val selectedGccVersion: String = "10",
     val installedSdkPlatforms: List<Int> = emptyList(),
     val selectedSdkApi: Int? = null,
+    val installedBuildToolsVersions: List<String> = emptyList(),
+    val selectedBuildToolsVersion: String? = null,
     val installedCmakeVersions: List<String> = emptyList(),
     val selectedCmakeVersion: String? = null,
     val installedNdkVersions: List<String> = emptyList(),
@@ -22,6 +24,7 @@ data class ToolchainInventory(
 data class ToolchainProjectProfile(
     val gccVersion: String? = null,
     val sdkApi: Int? = null,
+    val buildToolsVersion: String? = null,
     val cmakeVersion: String? = null,
     val ndkVersion: String? = null,
 )
@@ -43,6 +46,9 @@ sealed class ToolchainAction {
     data class InstallSdkPlatform(val api: Int) : ToolchainAction()
     data class SelectSdkPlatform(val api: Int) : ToolchainAction()
     data class RemoveSdkPlatform(val api: Int) : ToolchainAction()
+    data class InstallBuildTools(val version: String) : ToolchainAction()
+    data class SelectBuildTools(val version: String) : ToolchainAction()
+    data class RemoveBuildTools(val version: String) : ToolchainAction()
     data class InstallCmake(
         val version: String,
         val url: String = "",
