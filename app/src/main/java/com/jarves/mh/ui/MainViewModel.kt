@@ -2913,18 +2913,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun toolchainActionSuccessMessage(action: ToolchainAction): String = when (action) {
         ToolchainAction.Refresh -> "Toolchain inventory refreshed."
-        is ToolchainAction.InstallGcc -> "GCC/G++ \${action.version} installed."
-        is ToolchainAction.SelectGcc -> "GCC/G++ \${action.version} selected for new terminal sessions."
-        is ToolchainAction.RemoveGcc -> "GCC/G++ \${action.version} removed."
-        is ToolchainAction.InstallSdkPlatform -> "Android SDK API \${action.api} installed."
-        is ToolchainAction.SelectSdkPlatform -> "Android SDK API \${action.api} selected for project scripts."
-        is ToolchainAction.RemoveSdkPlatform -> "Android SDK API \${action.api} removed."
-        is ToolchainAction.InstallCmake -> "CMake \${action.version} installed."
-        is ToolchainAction.SelectCmake -> "CMake \${action.version} selected for new terminal sessions."
-        is ToolchainAction.RemoveCmake -> "CMake \${action.version} removed."
-        is ToolchainAction.InstallNdk -> "NDK \${action.version} installed."
-        is ToolchainAction.SelectNdk -> "NDK \${action.version} selected for new terminal sessions."
-        is ToolchainAction.RemoveNdk -> "NDK \${action.version} removed."
+        is ToolchainAction.InstallGcc -> "GCC/G++ ${action.version} installed."
+        is ToolchainAction.SelectGcc -> "GCC/G++ ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveGcc -> "GCC/G++ ${action.version} removed."
+        is ToolchainAction.InstallSdkPlatform -> "Android SDK API ${action.api} installed."
+        is ToolchainAction.SelectSdkPlatform -> "Android SDK API ${action.api} selected for project scripts."
+        is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api} removed."
+        is ToolchainAction.InstallCmake -> "CMake ${action.version} installed."
+        is ToolchainAction.SelectCmake -> "CMake ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveCmake -> "CMake ${action.version} removed."
+        is ToolchainAction.InstallNdk -> "NDK ${action.version} installed."
+        is ToolchainAction.SelectNdk -> "NDK ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveNdk -> "NDK ${action.version} removed."
     }
 
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {
