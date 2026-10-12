@@ -1122,7 +1122,7 @@ class RuntimeInstaller(private val context: Context) {
             gradle.beforeProject { project ->
                 project.extensions.extraProperties.set(
                     'android.aapt2FromMavenOverride',
-                    '/root/android-sdk/build-tools/35.0.0/aapt2'
+                    System.getenv('POCKETDEV_AAPT2_OVERRIDE') ?: '$ANDROID_AAPT2_GUEST_PATH'
                 )
                 project.buildscript.repositories {
                     maven { url = pocketMaven }
@@ -1255,6 +1255,7 @@ class RuntimeInstaller(private val context: Context) {
         ToolchainProjectProfile(
             gccVersion = profile.optString("gcc").takeIf { it in inventory.installedGccVersions },
             sdkApi = profile.optInt("sdkApi", -1).takeIf { it in inventory.installedSdkPlatforms },
+            buildToolsVersion = profile.optString("buildTools").takeIf { it in inventory.installedBuildToolsVersions },
             cmakeVersion = profile.optString("cmake").takeIf { it in inventory.installedCmakeVersions },
             ndkVersion = profile.optString("ndk").takeIf { it in inventory.installedNdkVersions },
         )
@@ -1276,19 +1277,23 @@ class RuntimeInstaller(private val context: Context) {
             selections.sdkApi == null || selections.sdkApi in inventory.installedSdkPlatforms,
         ) { "Selected project Android SDK API is not installed." }
         require(
+            selections.buildToolsVersion == null || selections.buildToolsVersion in inventory.installedBuildToolsVersions,
+        ) { "Selected project Android Build Tools version is not installed as a compatible ARM64 package." }
+        require(
             selections.cmakeVersion == null || selections.cmakeVersion in inventory.installedCmakeVersions,
         ) { "Selected project CMake version is not installed as a compatible ARM64 toolchain." }
         require(
             selections.ndkVersion == null || selections.ndkVersion in inventory.installedNdkVersions,
         ) { "Selected project NDK is not installed as a compatible ARM64 toolchain." }
         require(
-            selections.gccVersion != null || selections.sdkApi != null ||
+            selections.gccVersion != null || selections.sdkApi != null || selections.buildToolsVersion != null ||
                 selections.cmakeVersion != null || selections.ndkVersion != null,
         ) { "Choose at least one project override, or clear the profile to use global defaults." }
 
         val profile = JSONObject().put("schemaVersion", 1)
         selections.gccVersion?.let { profile.put("gcc", it) }
         selections.sdkApi?.let { profile.put("sdkApi", it) }
+        selections.buildToolsVersion?.let { profile.put("buildTools", it) }
         selections.cmakeVersion?.let { profile.put("cmake", it) }
         selections.ndkVersion?.let { profile.put("ndk", it) }
         profileFile.parentFile?.mkdirs()
@@ -2223,13 +2228,20 @@ class RuntimeInstaller(private val context: Context) {
                 val selectedApi = projectApi ?: defaultApi?.takeIf {
                     File(sdkRoot, "platforms/android-$it/android.jar").isFile
                 } ?: 36.takeIf { File(sdkRoot, "platforms/android-36/android.jar").isFile }
+                val defaultBuildTools = File(rootfs, "root/.pocket-default-build-tools-version").readTextOrNull()
+                val profileBuildTools = projectProfile?.optString("buildTools")?.takeIf {
+                    isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it"))
+                }
+                val selectedBuildTools = profileBuildTools ?: defaultBuildTools?.takeIf {
+                    isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it"))
+                } ?: "35.0.0".takeIf { isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it")) }
                 val extraPath = buildList {
                     selectedNdk?.let { add("/root/android-sdk/ndk/$it/toolchains/llvm/prebuilt/linux-aarch64/bin") }
                     selectedCmake?.let { add("/root/android-sdk/cmake/$it/bin") }
+                    selectedBuildTools?.let { add("/root/android-sdk/build-tools/$it") }
                 }
                 val androidPath = if (androidReady) listOf(
                     "/opt/gradle/gradle-8.14.3/bin",
-                    "/root/android-sdk/build-tools/35.0.0",
                     "/root/android-sdk/cmdline-tools/latest/bin",
                 ) else emptyList()
                 put("PATH", (extraPath + androidPath + basePath.split(":")).distinct().joinToString(":"))
@@ -2238,8 +2250,13 @@ class RuntimeInstaller(private val context: Context) {
                     put("ANDROID_SDK_ROOT", "/root/android-sdk")
                     put("GRADLE_HOME", "/opt/gradle/gradle-8.14.3")
                     put("GRADLE_USER_HOME", "/root/.gradle")
-                    put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/35.0.0/aapt2")
                 }
+                selectedBuildTools?.let {
+                    put("ANDROID_BUILD_TOOLS_VERSION", it)
+                    put("ANDROID_BUILD_TOOLS_HOME", "/root/android-sdk/build-tools/$it")
+                    put("POCKETDEV_AAPT2_OVERRIDE", "/root/android-sdk/build-tools/$it/aapt2")
+                    put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/$it/aapt2")
+                } ?: put("POCKETDEV_AAPT2_OVERRIDE", ANDROID_AAPT2_GUEST_PATH)
                 selectedCmake?.let { put("CMAKE_HOME", "/root/android-sdk/cmake/$it") }
                 selectedNdk?.let {
                     put("ANDROID_NDK_HOME", "/root/android-sdk/ndk/$it")
