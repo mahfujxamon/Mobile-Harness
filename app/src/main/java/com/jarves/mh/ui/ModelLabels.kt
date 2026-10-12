@@ -45,6 +45,7 @@ fun AgentKind.titleRes(): Int = when (this) {
     AgentKind.CLAUDE_CODE -> R.string.agent_title_claude
     AgentKind.DEEPSEEK_HARNESS -> R.string.agent_title_deepseek
     AgentKind.ANTIGRAVITY -> R.string.agent_title_antigravity
+    AgentKind.CODEX_CLI -> R.string.agent_title_codex
 }
 
 @StringRes
@@ -52,6 +53,7 @@ fun AgentKind.subtitleRes(): Int = when (this) {
     AgentKind.CLAUDE_CODE -> R.string.agent_subtitle_claude
     AgentKind.DEEPSEEK_HARNESS -> R.string.agent_subtitle_deepseek
     AgentKind.ANTIGRAVITY -> R.string.agent_subtitle_antigravity
+    AgentKind.CODEX_CLI -> R.string.agent_subtitle_codex
 }
 
 @StringRes
