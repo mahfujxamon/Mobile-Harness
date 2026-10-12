@@ -75,7 +75,7 @@ enum class AgentKind(
     CODEX_CLI(
         "codex-cli",
         "Codex CLI",
-        "OpenAI coding agent · OpenAI-compatible API",
+        "Official OpenAI coding agent · ChatGPT subscription or API key",
         "npm package",
     ),
     ;
