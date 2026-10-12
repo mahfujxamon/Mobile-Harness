@@ -74,6 +74,7 @@ class RuntimeInstaller(private val context: Context) {
     private val devStacksFile = File(rootfs, ".pocket-dev-stacks.json")
     private val dshMarker = File(rootfs, ".pocket-dsh-version")
     private val agyMarker = File(rootfs, ".pocket-agy-version")
+    private val codexMarker = File(rootfs, ".pocket-codex-version")
     private val githubCliMarker = File(rootfs, ".pocket-github-cli-version")
     private val dshAndroidCompatibilityMarker = File(rootfs, ".pocket-dsh-android-compat-version")
     private val macosMetadataRepairMarker = File(rootfs, ".pocket-macos-metadata-repair")
@@ -240,6 +241,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(proot, 0.985f, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(proot, 0.985f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(proot, 0.985f, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> ensureCodexInstalled(proot, 0.95f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_setup_complete), 1f))
         return InstalledRuntime(proot, rootfs)
@@ -259,6 +261,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(runtime.proot, 0.05f, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(runtime.proot, 0.05f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(runtime.proot, 0.05f, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> ensureCodexInstalled(runtime.proot, 0.05f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_ready, agent.localizedTitle(context)), 1f))
     }
@@ -278,6 +281,9 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> isInstalled() &&
                 File(rootfs, AGY_GUEST_PATH.removePrefix("/")).canExecute() &&
                 !agyMarker.readTextOrNull().isNullOrBlank()
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> isInstalled() &&
+                File(rootfs, CODEX_GUEST_PATH.removePrefix("/")).canExecute() &&
+                !codexMarker.readTextOrNull().isNullOrBlank()
         }
     }
 
@@ -366,6 +372,11 @@ class RuntimeInstaller(private val context: Context) {
             ?.trim()
             ?.takeIf { it.isNotEmpty() && File(rootfs, AGY_GUEST_PATH.removePrefix("/")).canExecute() }
             ?.let { put(com.jarves.mh.model.AgentKind.ANTIGRAVITY, it) }
+
+        codexMarker.readTextOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI) }
+            ?.let { put(com.jarves.mh.model.AgentKind.CODEX_CLI, it) }
     }
 
     /** Checks each installed agent against its own authoritative release source. */
@@ -393,6 +404,12 @@ class RuntimeInstaller(private val context: Context) {
                         put(com.jarves.mh.model.AgentKind.ANTIGRAVITY, AgentUpdateInfo(current, latest))
                     }
             }
+            installed[com.jarves.mh.model.AgentKind.CODEX_CLI]?.let { current ->
+                runCatching { JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version") }
+                    .getOrNull()?.takeIf { isVersionNewer(it, current) }?.let { latest ->
+                        put(com.jarves.mh.model.AgentKind.CODEX_CLI, AgentUpdateInfo(current, latest))
+                    }
+            }
         }
     }
 
@@ -406,6 +423,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> updateClaude(runtime, expectedVersion, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> updateDsh(runtime, expectedVersion, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> updateAgy(runtime, expectedVersion, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> updateCodex(runtime.proot, expectedVersion, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_version_ready, agent.localizedTitle(context), expectedVersion), 1f, event = RuntimeInstallEvent.COMPLETED))
     }
@@ -566,6 +584,49 @@ class RuntimeInstaller(private val context: Context) {
         CORE_TOOLS_VERSION,
         LEGACY_CORE_TOOLS_VERSION,
     )
+
+    private suspend fun ensureCodexInstalled(
+        proot: File,
+        fraction: Float,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        if (isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI)) return
+        val version = JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version")
+        installCodexVersion(proot, version, fraction, onProgress)
+    }
+
+    private suspend fun updateCodex(
+        proot: File,
+        expectedVersion: String,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        val latest = JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version")
+        check(latest == expectedVersion) { str(R.string.rt_install_newer_release, "Codex CLI") }
+        installCodexVersion(proot, expectedVersion, 0.05f, onProgress)
+    }
+
+    private suspend fun installCodexVersion(
+        proot: File,
+        version: String,
+        fraction: Float,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(version.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?"))) {
+            "Invalid Codex CLI version returned by npm registry"
+        }
+        runGuestCommand(
+            proot = proot,
+            command = "npm install --global --no-audit --no-fund @openai/codex@$version",
+            displayCommand = "npm install -g @openai/codex@$version",
+            fraction = fraction,
+            timeoutMs = 10 * 60_000L,
+            onProgress = onProgress,
+            failureMessage = "Codex CLI installation failed",
+        )
+        verifyGuest(proot, "$CODEX_GUEST_PATH --version", str(R.string.rt_install_verify_failed, "Codex CLI"))
+        codexMarker.writeText(version)
+        check(isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI)) { "Codex CLI installation is incomplete" }
+    }
 
     private suspend fun ensureClaudeInstalled(
         proot: File,
@@ -2615,6 +2676,7 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
     companion object {
         const val AGY_GUEST_PATH = "/root/.local/bin/agy"
         const val GITHUB_CLI_GUEST_PATH = "/root/.local/bin/gh"
+        const val CODEX_GUEST_PATH = "/usr/local/bin/codex"
         private const val AGY_VERSION = "1.1.27"
         private const val AGY_RELEASE_URL = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.1.27-5211191891591168/linux-arm/cli_linux_arm64.tar.gz"
         private const val AGY_RELEASE_SHA512 = "ed45f6930785aa4b42f14e07ace1c9d91a94fb76e760f54acbd7d3d3951e1f957fd456a0dae2a3124dd9a3b689bf7afb7c9303a3e4ba95037fc10063424d9bf9"
