@@ -1492,16 +1492,14 @@ class RuntimeInstaller(private val context: Context) {
     }.getOrDefault(false)
 
     private fun versionComparator(): Comparator<String> = Comparator { left, right ->
-        val a = left.split(Regex("""[.\-+]""")).map { it.toIntOrNull() }
-        val b = right.split(Regex("""[.\-+]""")).map { it.toIntOrNull() }
+        if (left == "system") return@Comparator 1
+        if (right == "system") return@Comparator -1
+        val a = left.split(Regex("""[.\-+]""")).map { it.toIntOrNull() ?: 0 }
+        val b = right.split(Regex("""[.\-+]""")).map { it.toIntOrNull() ?: 0 }
         for (index in 0 until maxOf(a.size, b.size)) {
-            val x = a.getOrNull(index)
-            val y = b.getOrNull(index)
-            if (x != y) {
-                if (x == null) return@Comparator 1
-                if (y == null) return@Comparator -1
-                return@Comparator x.compareTo(y)
-            }
+            val x = a.getOrElse(index) { 0 }
+            val y = b.getOrElse(index) { 0 }
+            if (x != y) return@Comparator x.compareTo(y)
         }
         left.compareTo(right)
     }
