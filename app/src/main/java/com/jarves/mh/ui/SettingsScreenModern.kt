@@ -158,6 +158,7 @@ fun SettingsScreen(
     var toolchainPendingRemoval by remember { mutableStateOf<ToolchainAction?>(null) }
     var gccVersionInput by rememberSaveable { mutableStateOf("9") }
     var sdkApiInput by rememberSaveable { mutableStateOf("35") }
+    var buildToolsVersionInput by rememberSaveable { mutableStateOf("35.0.0") }
     var cmakeVersionInput by rememberSaveable { mutableStateOf("3.31.12") }
     var cmakeUrlInput by rememberSaveable { mutableStateOf("") }
     var cmakeShaInput by rememberSaveable { mutableStateOf("") }
@@ -166,6 +167,7 @@ fun SettingsScreen(
     var ndkShaInput by rememberSaveable { mutableStateOf("") }
     var projectGccOverride by rememberSaveable { mutableStateOf("") }
     var projectApiOverride by rememberSaveable { mutableStateOf("") }
+    var projectBuildToolsOverride by rememberSaveable { mutableStateOf("") }
     var projectCmakeOverride by rememberSaveable { mutableStateOf("") }
     var projectNdkOverride by rememberSaveable { mutableStateOf("") }
 
@@ -175,6 +177,7 @@ fun SettingsScreen(
     LaunchedEffect(state.toolchainProfileProjectId, state.toolchainProjectProfile) {
         projectGccOverride = state.toolchainProjectProfile?.gccVersion.orEmpty()
         projectApiOverride = state.toolchainProjectProfile?.sdkApi?.toString().orEmpty()
+        projectBuildToolsOverride = state.toolchainProjectProfile?.buildToolsVersion.orEmpty()
         projectCmakeOverride = state.toolchainProjectProfile?.cmakeVersion.orEmpty()
         projectNdkOverride = state.toolchainProjectProfile?.ndkVersion.orEmpty()
     }
@@ -512,6 +515,13 @@ fun SettingsScreen(
                             onSelected = { projectApiOverride = it },
                         )
                         ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_buildtools_override),
+                            selected = projectBuildToolsOverride,
+                            options = inventory.installedBuildToolsVersions,
+                            inheritedValue = inventory.selectedBuildToolsVersion ?: "none",
+                            onSelected = { projectBuildToolsOverride = it },
+                        )
+                        ToolchainOverrideSelector(
                             label = stringResource(R.string.toolchains_profile_cmake_override),
                             selected = projectCmakeOverride,
                             options = inventory.installedCmakeVersions,
@@ -526,7 +536,8 @@ fun SettingsScreen(
                             onSelected = { projectNdkOverride = it },
                         )
                         val hasProjectOverride = projectGccOverride.isNotBlank() ||
-                            projectApiOverride.isNotBlank() || projectCmakeOverride.isNotBlank() || projectNdkOverride.isNotBlank()
+                            projectApiOverride.isNotBlank() || projectBuildToolsOverride.isNotBlank() ||
+                            projectCmakeOverride.isNotBlank() || projectNdkOverride.isNotBlank()
                         Button(
                             onClick = {
                                 activeToolchainProject?.let { project ->
@@ -535,6 +546,7 @@ fun SettingsScreen(
                                             projectId = project.id,
                                             gccVersion = projectGccOverride.takeIf { it.isNotBlank() },
                                             sdkApi = projectApiOverride.toIntOrNull(),
+                                            buildToolsVersion = projectBuildToolsOverride.takeIf { it.isNotBlank() },
                                             cmakeVersion = projectCmakeOverride.takeIf { it.isNotBlank() },
                                             ndkVersion = projectNdkOverride.takeIf { it.isNotBlank() },
                                         ),
@@ -673,6 +685,60 @@ fun SettingsScreen(
                                     ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
                                     TextButton(
                                         onClick = { toolchainPendingRemoval = ToolchainAction.RemoveSdkPlatform(api) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_buildtools), fontWeight = FontWeight.Bold)
+                        Text(
+                            stringResource(R.string.toolchains_buildtools_note),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedBuildToolsVersion?.let { "Build Tools $it" } ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = buildToolsVersionInput,
+                            onValueChange = { buildToolsVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(32) },
+                            label = { Text(stringResource(R.string.toolchains_buildtools_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val requestedBuildTools = buildToolsVersionInput.trim()
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallBuildTools(requestedBuildTools)) },
+                            enabled = !state.toolchainManagerBusy &&
+                                requestedBuildTools.matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                requestedBuildTools !in inventory.installedBuildToolsVersions &&
+                                DevStack.ANDROID in state.installedDevStacks,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " Build Tools") }
+                        inventory.installedBuildToolsVersions.forEach { version ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.toolchains_buildtools_version, version),
+                                    Modifier.weight(1f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (version == inventory.selectedBuildToolsVersion) {
+                                    Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                } else {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectBuildTools(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveBuildTools(version) },
                                         enabled = !state.toolchainManagerBusy,
                                     ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
                                 }
