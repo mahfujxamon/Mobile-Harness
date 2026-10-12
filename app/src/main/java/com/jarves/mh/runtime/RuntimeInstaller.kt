@@ -1195,6 +1195,15 @@ class RuntimeInstaller(private val context: Context) {
         val selectedApi = requestedApi?.takeIf { it in sdkPlatforms }
             ?: 36.takeIf { 36 in sdkPlatforms } ?: sdkPlatforms.lastOrNull()
 
+        val buildToolsVersions = File(sdk, "build-tools").listFiles().orEmpty()
+            .filter(::isValidAndroidBuildTools)
+            .map { it.name }
+            .sortedWith(versionComparator())
+        val requestedBuildTools = File(rootfs, "root/.pocket-default-build-tools-version").readTextOrNull()
+        val selectedBuildTools = requestedBuildTools?.takeIf { it in buildToolsVersions }
+            ?: "35.0.0".takeIf { it in buildToolsVersions }
+            ?: buildToolsVersions.lastOrNull()
+
         val sdkCmakeVersions = File(sdk, "cmake").listFiles().orEmpty()
             .filter { dir ->
                 val executable = File(dir, "bin/cmake")
@@ -1218,6 +1227,8 @@ class RuntimeInstaller(private val context: Context) {
             selectedGccVersion = selectedGcc,
             installedSdkPlatforms = sdkPlatforms,
             selectedSdkApi = selectedApi,
+            installedBuildToolsVersions = buildToolsVersions,
+            selectedBuildToolsVersion = selectedBuildTools,
             installedCmakeVersions = cmakeVersions,
             selectedCmakeVersion = selectedCmake,
             installedNdkVersions = ndkVersions,
@@ -1356,6 +1367,72 @@ class RuntimeInstaller(private val context: Context) {
             "Select another GCC/G++ version before removing $version."
         }
         aptRemove(installedRuntime().proot, listOf("gcc-$version", "g++-$version"), 0.2f, onProgress)
+    }
+
+
+    suspend fun installBuildToolsVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid Android Build Tools version: $version" }
+        require(version !in toolchainInventory().installedBuildToolsVersions) { "Android Build Tools $version is already installed." }
+        val runtime = installedRuntime()
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) {
+            "Android sdkmanager is unavailable. Reinstall the Android toolchain first."
+        }
+        runGuestCommand(
+            proot = runtime.proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --install 'build-tools;$version'",
+            displayCommand = "sdkmanager --install build-tools;$version",
+            fraction = 0.15f,
+            timeoutMs = 45 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not install Android Build Tools $version",
+        )
+        if (version !in toolchainInventory().installedBuildToolsVersions) {
+            // Upstream Linux Build Tools are often x86-64 binaries. Don't leave an
+            // unusable package installed on the ARM64 runtime after an architecture mismatch.
+            runCatching {
+                runGuestCommand(
+                    proot = runtime.proot,
+                    command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'build-tools;$version'",
+                    displayCommand = "sdkmanager --uninstall build-tools;$version (unsupported host binaries)",
+                    fraction = 0.9f,
+                    timeoutMs = 20 * 60 * 1_000L,
+                    onProgress = onProgress,
+                    failureMessage = "Could not roll back incompatible Build Tools $version",
+                )
+            }
+            error("Android Build Tools $version did not provide a verified native Linux/AArch64 aapt2. The package may contain x86-64 host tools.")
+        }
+        val selected = File(rootfs, "root/.pocket-default-build-tools-version")
+        if (selected.readTextOrNull().isNullOrBlank()) selected.writeText(version)
+    }
+
+    fun selectBuildToolsVersion(version: String) {
+        require(version in toolchainInventory().installedBuildToolsVersions) {
+            "Android Build Tools $version is not installed as a compatible ARM64 package."
+        }
+        File(rootfs, "root/.pocket-default-build-tools-version").writeText(version)
+    }
+
+    suspend fun removeBuildToolsVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedBuildToolsVersions) { "Android Build Tools $version is not installed." }
+        require(!isToolchainVersionUsedByProjectProfiles("buildTools", version)) {
+            "A project toolchain profile still requires Build Tools $version. Clear or update that profile first."
+        }
+        require(toolchainInventory().selectedBuildToolsVersion != version) {
+            "Select another Build Tools version before removing $version."
+        }
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable." }
+        runGuestCommand(
+            proot = installedRuntime().proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'build-tools;$version'",
+            displayCommand = "sdkmanager --uninstall build-tools;$version",
+            fraction = 0.2f,
+            timeoutMs = 30 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not remove Android Build Tools $version",
+        )
     }
 
     suspend fun installSdkPlatform(api: Int, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
@@ -1572,6 +1649,14 @@ class RuntimeInstaller(private val context: Context) {
         removePath(File(rootfs, "root/android-sdk/ndk/$version"))
         onProgress(RuntimeInstallProgress("NDK $version removed", 1f, event = RuntimeInstallEvent.COMPLETED))
     }
+
+
+    /** Upstream packages are accepted only if the native tools can execute on this ARM64 host. */
+    private fun isValidAndroidBuildTools(directory: File): Boolean = runCatching {
+        if (!directory.isDirectory || !TOOL_VERSION_PATTERN.matches(directory.name)) return@runCatching false
+        val aapt2 = File(directory, "aapt2")
+        aapt2.isFile && aapt2.canExecute() && isAarch64Elf(aapt2)
+    }.getOrDefault(false)
 
     private fun validateSha256(value: String): String {
         val normalized = value.trim().lowercase()
