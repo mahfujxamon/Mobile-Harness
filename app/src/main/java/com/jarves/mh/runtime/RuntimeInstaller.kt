@@ -1287,6 +1287,283 @@ class RuntimeInstaller(private val context: Context) {
         )
     }
 
+
+    /**
+     * Installs a Linux/AArch64 CMake archive side-by-side. The default source is
+     * Kitware's release archive and published SHA-256; custom archives need a checksum.
+     */
+    suspend fun installCmakeVersion(
+        version: String,
+        customUrl: String = "",
+        customSha256: String = "",
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid CMake version: $version" }
+        val filename = "cmake-$version-linux-aarch64.tar.gz"
+        val url = customUrl.trim().ifEmpty { "https://github.com/Kitware/CMake/releases/download/v$version/$filename" }
+        require(url.startsWith("https://", ignoreCase = true)) { "Toolchain downloads must use HTTPS." }
+        val checksum = when {
+            customUrl.isNotBlank() -> validateSha256(customSha256)
+            customSha256.isNotBlank() -> validateSha256(customSha256)
+            else -> {
+                val text = fetchText("https://github.com/Kitware/CMake/releases/download/v$version/cmake-$version-SHA-256.txt")
+                text.lineSequence().firstOrNull { it.contains(filename) }
+                    ?.let { line -> Regex("""[a-fA-F0-9]{64}""").find(line)?.value }
+                    ?: error("Kitware has no Linux AArch64 archive/checksum for CMake $version. Supply a custom ARM64 archive and SHA-256.")
+            }
+        }
+        val runtime = installedRuntime()
+        val destination = File(rootfs, "root/android-sdk/cmake/$version")
+        require(!destination.exists()) { "CMake $version is already installed." }
+        val archive = File(downloads, "cmake-$version-linux-aarch64.tar.gz")
+        onProgress(RuntimeInstallProgress("Downloading CMake $version (Linux ARM64)", 0.05f, indeterminate = true))
+        downloadVerified(url, archive, checksum) { downloaded, total ->
+            val ratio = if (total > 0L) downloaded.toFloat() / total else 0f
+            onProgress(RuntimeInstallProgress(
+                message = "Downloading CMake $version",
+                fraction = 0.05f + ratio * 0.55f,
+                downloadedBytes = downloaded,
+                totalBytes = total.takeIf { it > 0L },
+                event = RuntimeInstallEvent.DOWNLOAD,
+            ))
+        }
+        val staging = File(runtimeDir, "cmake-$version.installing")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        var activated = false
+        try {
+            extractVersionedArchive(archive, staging)
+            val candidate = staging.walkTopDown().firstOrNull { it.isDirectory && File(it, "bin/cmake").isFile }
+                ?: error("Archive does not contain a CMake bin/cmake executable.")
+            check(isAarch64Elf(File(candidate, "bin/cmake"))) {
+                "CMake archive is not a Linux AArch64 build. x86_64 CMake cannot run in this ARM64 runtime."
+            }
+            destination.parentFile?.mkdirs()
+            check(candidate.renameTo(destination)) { "Could not activate CMake $version" }
+            activated = true
+            staging.deleteRecursively()
+            verifyGuest(runtime.proot, "'/root/android-sdk/cmake/$version/bin/cmake' --version", "CMake $version failed post-install verification")
+            val defaultFile = File(rootfs, "root/.pocket-default-cmake-version")
+            if (defaultFile.readTextOrNull().isNullOrBlank()) defaultFile.writeText(version)
+            archive.delete()
+            onProgress(RuntimeInstallProgress("CMake $version installed and verified", 1f, event = RuntimeInstallEvent.COMPLETED))
+        } catch (error: Throwable) {
+            staging.deleteRecursively()
+            if (activated) destination.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun selectCmakeVersion(version: String) {
+        require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed as an ARM64 toolchain" }
+        File(rootfs, "root/.pocket-default-cmake-version").writeText(version)
+    }
+
+    suspend fun removeCmakeVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed" }
+        require(File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull() != version) {
+            "Select another CMake version before removing $version."
+        }
+        onProgress(RuntimeInstallProgress("Removing CMake $version", 0.2f, indeterminate = true))
+        removePath(File(rootfs, "root/android-sdk/cmake/$version"))
+        onProgress(RuntimeInstallProgress("CMake $version removed", 1f, event = RuntimeInstallEvent.COMPLETED))
+    }
+
+    /** Installs a custom Linux/AArch64 NDK only after checking checksum, version and ELF machine type. */
+    suspend fun installNdkArchive(
+        version: String,
+        url: String,
+        sha256: String,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid NDK version: $version" }
+        require(url.startsWith("https://", ignoreCase = true)) { "NDK downloads must use HTTPS." }
+        val checksum = validateSha256(sha256)
+        val archivePath = runCatching { java.net.URI(url).path.lowercase() }.getOrDefault(url.substringBefore('?').lowercase())
+        val isZip = archivePath.endsWith(".zip")
+        require(isZip || archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz")) {
+            "NDK archive must be .zip, .tar.gz, or .tgz."
+        }
+        val runtime = installedRuntime()
+        val destination = File(rootfs, "root/android-sdk/ndk/$version")
+        require(!destination.exists()) { "NDK $version is already installed." }
+        val archiveName = if (isZip) "ndk-$version.zip" else "ndk-$version.tar.gz"
+        val archive = File(downloads, archiveName)
+        onProgress(RuntimeInstallProgress("Downloading NDK $version (Linux ARM64)", 0.05f, indeterminate = true))
+        downloadVerified(url, archive, checksum) { downloaded, total ->
+            val ratio = if (total > 0L) downloaded.toFloat() / total else 0f
+            onProgress(RuntimeInstallProgress(
+                message = "Downloading NDK $version",
+                fraction = 0.05f + ratio * 0.55f,
+                downloadedBytes = downloaded,
+                totalBytes = total.takeIf { it > 0L },
+                event = RuntimeInstallEvent.DOWNLOAD,
+            ))
+        }
+        val staging = File(runtimeDir, "ndk-$version.installing")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        var activated = false
+        try {
+            extractVersionedArchive(archive, staging)
+            val candidate = staging.walkTopDown().firstOrNull { isNdkLayout(it) }
+                ?: error("Archive is not a complete Android NDK with a Linux ARM64 LLVM toolchain.")
+            val properties = File(candidate, "source.properties")
+            val declaredVersion = Regex("""(?m)^Pkg\.Revision\s*=\s*(\S+)""").find(properties.readText())?.groupValues?.get(1)
+            require(declaredVersion == version) { "NDK archive reports version '$declaredVersion', not '$version'." }
+            val clang = File(candidate, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang")
+            check(clang.canExecute() && isAarch64Elf(clang)) {
+                "This NDK is not built for a Linux AArch64 host. Google's standard Linux NDK archives are x86_64 and are incompatible."
+            }
+            check(File(candidate, "toolchains/llvm/prebuilt/linux-aarch64/sysroot/usr/include").isDirectory) {
+                "NDK $version does not contain a usable Android sysroot."
+            }
+            destination.parentFile?.mkdirs()
+            check(candidate.renameTo(destination)) { "Could not activate NDK $version" }
+            activated = true
+            staging.deleteRecursively()
+            verifyGuest(runtime.proot, "'/root/android-sdk/ndk/$version/toolchains/llvm/prebuilt/linux-aarch64/bin/clang' --version", "NDK $version failed post-install verification")
+            val defaultFile = File(rootfs, "root/.pocket-default-ndk-version")
+            if (defaultFile.readTextOrNull().isNullOrBlank()) defaultFile.writeText(version)
+            archive.delete()
+            onProgress(RuntimeInstallProgress("NDK $version installed and verified", 1f, event = RuntimeInstallEvent.COMPLETED))
+        } catch (error: Throwable) {
+            staging.deleteRecursively()
+            if (activated) destination.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun selectNdkVersion(version: String) {
+        require(version in toolchainInventory().installedNdkVersions) { "NDK $version is not installed as a native ARM64 toolchain" }
+        File(rootfs, "root/.pocket-default-ndk-version").writeText(version)
+    }
+
+    suspend fun removeNdkVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedNdkVersions) { "NDK $version is not installed" }
+        require(File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull() != version) {
+            "Select another NDK version before removing $version."
+        }
+        onProgress(RuntimeInstallProgress("Removing NDK $version", 0.2f, indeterminate = true))
+        removePath(File(rootfs, "root/android-sdk/ndk/$version"))
+        onProgress(RuntimeInstallProgress("NDK $version removed", 1f, event = RuntimeInstallEvent.COMPLETED))
+    }
+
+    private fun validateSha256(value: String): String {
+        val normalized = value.trim().lowercase()
+        require(Regex("""^[a-f0-9]{64}$""").matches(normalized)) {
+            "Enter the archive's 64-character SHA-256 checksum."
+        }
+        return normalized
+    }
+
+    private fun isAarch64Elf(file: File): Boolean = runCatching {
+        if (!file.isFile) return@runCatching false
+        val header = ByteArray(20)
+        file.inputStream().use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val count = input.read(header, offset, header.size - offset)
+                if (count < 0) return@runCatching false
+                offset += count
+            }
+        }
+        header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
+            header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
+            header[4] == 2.toByte() && header[5] == 1.toByte() &&
+            (header[18].toInt() and 0xff) == 183
+    }.getOrDefault(false)
+
+    private fun isNdkLayout(directory: File): Boolean =
+        directory.isDirectory &&
+            File(directory, "source.properties").isFile &&
+            File(directory, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang").isFile
+
+    private fun isValidNativeNdk(directory: File): Boolean = runCatching {
+        isNdkLayout(directory) &&
+            File(directory, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang").let { it.canExecute() && isAarch64Elf(it) }
+    }.getOrDefault(false)
+
+    private fun versionComparator(): Comparator<String> = Comparator { left, right ->
+        val a = left.split(Regex("""[.\-+]""")).map { it.toIntOrNull() }
+        val b = right.split(Regex("""[.\-+]""")).map { it.toIntOrNull() }
+        for (index in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrNull(index)
+            val y = b.getOrNull(index)
+            if (x != y) {
+                if (x == null) return@Comparator 1
+                if (y == null) return@Comparator -1
+                return@Comparator x.compareTo(y)
+            }
+        }
+        left.compareTo(right)
+    }
+
+    /** Safe tar.gz/zip extraction; refuses path traversal and absolute symbolic links. */
+    private fun extractVersionedArchive(archive: File, destination: File) {
+        destination.mkdirs()
+        if (archive.name.lowercase().endsWith(".zip")) {
+            ZipInputStream(BufferedInputStream(archive.inputStream())).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val relative = entry.name.removePrefix("./")
+                    if (relative.isNotBlank()) {
+                        val target = safeChild(destination, relative)
+                        if (entry.isDirectory) target.mkdirs() else {
+                            target.parentFile?.mkdirs()
+                            FileOutputStream(target).use { output -> zip.copyTo(output) }
+                            if (relative.split('/').any { it == "bin" }) runCatching { Os.chmod(target.absolutePath, 0b111101101) }
+                        }
+                    }
+                    zip.closeEntry()
+                    entry = zip.nextEntry
+                }
+            }
+            return
+        }
+        val rootPath = destination.canonicalFile.toPath().normalize()
+        val deferredLinks = mutableListOf<Pair<File, File>>()
+        TarArchiveInputStream(GzipCompressorInputStream(BufferedInputStream(archive.inputStream()))).use { tar ->
+            var entry: TarArchiveEntry? = tar.nextEntry
+            while (entry != null) {
+                val relative = entry.name.removePrefix("./")
+                if (relative.isNotBlank()) {
+                    val target = safeChild(destination, relative)
+                    when {
+                        entry.isDirectory -> target.mkdirs()
+                        entry.isSymbolicLink -> {
+                            val linkPath = java.nio.file.Paths.get(entry.linkName)
+                            require(!linkPath.isAbsolute) { "Archive contains an absolute symlink: $relative" }
+                            val resolved = target.toPath().parent.resolve(linkPath).normalize()
+                            require(resolved.startsWith(rootPath)) { "Archive symlink escapes installation directory: $relative" }
+                            target.parentFile?.mkdirs()
+                            if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
+                            Os.symlink(entry.linkName, target.absolutePath)
+                        }
+                        entry.isLink -> {
+                            val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
+                            target.parentFile?.mkdirs()
+                            if (linkTarget.isFile) linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+                            else deferredLinks += target to linkTarget
+                        }
+                        entry.isFile -> {
+                            target.parentFile?.mkdirs()
+                            FileOutputStream(target).use { output -> tar.copyTo(output) }
+                            runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
+                        }
+                    }
+                }
+                entry = tar.nextEntry
+            }
+        }
+        deferredLinks.forEach { (target, linkTarget) ->
+            require(linkTarget.isFile) { "Archive hard-link target is missing" }
+            target.parentFile?.mkdirs()
+            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+            runCatching { Os.chmod(target.absolutePath, Os.stat(linkTarget.absolutePath).st_mode) }
+        }
+    }
+
     fun installedStacks(): Set<DevStack> = readDevStackState()
         .filterValues { it }
         .keys
