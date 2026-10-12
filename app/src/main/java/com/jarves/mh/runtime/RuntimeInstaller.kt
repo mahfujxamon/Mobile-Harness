@@ -202,8 +202,11 @@ class RuntimeInstaller(private val context: Context) {
         migrateLegacyClaudeMarker()
         ensureSettingsAndHooks()
 
-        // Node.js and Git are always available in the Core runtime. Python,
-        // C/C++, PHP, and Android remain opt-in stacks during onboarding.
+        // Native npm packages used by common developer tools (including Graft's
+        // Tree-sitter bindings) need a working compiler on Linux ARM64. Install
+        // the C/C++ toolchain with Core so a user does not hit node-gyp errors
+        // merely because they did not know to select an optional developer stack.
+        // Other language and Android stacks remain opt-in.
         val coreNeeded = !File(rootfs, "usr/bin/git").exists() || !isSupportedCoreToolsVersion()
         if (coreNeeded) {
             installNodeIfNeeded(proot, 0.58f, 0.66f, onProgress)
@@ -225,7 +228,8 @@ class RuntimeInstaller(private val context: Context) {
             coreToolsMarker.writeText(CORE_TOOLS_VERSION)
         }
 
-        val missingStacks = selectedStacks.filterNot(::isStackInstalled)
+        val requiredStacks = selectedStacks + DevStack.CPP
+        val missingStacks = requiredStacks.filterNot(::isStackInstalled)
         missingStacks.forEachIndexed { index, stack ->
             val slice = 0.26f / maxOf(1, missingStacks.size)
             val from = 0.72f + index * slice
