@@ -61,6 +61,8 @@ import com.jarves.mh.runtime.AntigravityRuntimeBridge
 import com.jarves.mh.runtime.NativeSpawnProcess
 import com.jarves.mh.runtime.RuntimeInstallProgress
 import com.jarves.mh.runtime.RuntimeInstaller
+import com.jarves.mh.runtime.ToolchainAction
+import com.jarves.mh.runtime.ToolchainInventory
 import com.jarves.mh.runtime.RuntimeSetupController
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.RuntimeSetupSnapshot
@@ -357,6 +359,10 @@ data class AppUiState(
     val devStackProgress: Float = 0f,
     val devStackBytes: Pair<Long, Long>? = null,
     val devStackBytesPerSecond: Long? = null,
+    val toolchainInventory: ToolchainInventory = ToolchainInventory(),
+    val toolchainManagerBusy: Boolean = false,
+    val toolchainManagerMessage: String? = null,
+    val toolchainManagerProgress: Float = 0f,
     val agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val primaryAgentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val installedAgentVersions: Map<AgentKind, String> = emptyMap(),
@@ -2815,6 +2821,110 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+
+    /** Refreshes installed side-by-side toolchains shown in Settings. */
+    fun refreshToolchainInventory() {
+        if (_state.value.toolchainManagerBusy) return
+        _state.update { it.copy(toolchainManagerBusy = true, toolchainManagerMessage = null) }
+        viewModelScope.launch {
+            val result = runCatching { withContext(Dispatchers.IO) { installer.toolchainInventory() } }
+            _state.update { current ->
+                current.copy(
+                    toolchainInventory = result.getOrElse { current.toolchainInventory },
+                    toolchainManagerBusy = false,
+                    toolchainManagerProgress = 0f,
+                    toolchainManagerMessage = result.exceptionOrNull()?.message?.take(240),
+                )
+            }
+        }
+    }
+
+    /** Dispatches versioned compiler, SDK-platform, CMake and NDK actions from Settings. */
+    fun onToolchainAction(action: ToolchainAction) {
+        if (action === ToolchainAction.Refresh) {
+            refreshToolchainInventory()
+            return
+        }
+        val current = _state.value
+        if (current.toolchainManagerBusy) return
+        val removesTool = action is ToolchainAction.RemoveGcc ||
+            action is ToolchainAction.RemoveSdkPlatform ||
+            action is ToolchainAction.RemoveCmake ||
+            action is ToolchainAction.RemoveNdk
+        if (removesTool && (current.isRunning || current.projectTerminalRunning || current.androidBuildRunning)) {
+            _state.update { it.copy(toastMessage = str(R.string.vm_stop_before_removing_tools)) }
+            return
+        }
+        _state.update {
+            it.copy(
+                toolchainManagerBusy = true,
+                toolchainManagerProgress = 0f,
+                toolchainManagerMessage = "Starting toolchain operation…",
+            )
+        }
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val progress: suspend (RuntimeInstallProgress) -> Unit = { event ->
+                        _state.update { state ->
+                            state.copy(
+                                toolchainManagerMessage = event.message,
+                                toolchainManagerProgress = event.fraction.coerceIn(0f, 1f),
+                            )
+                        }
+                    }
+                    when (action) {
+                        ToolchainAction.Refresh -> Unit
+                        is ToolchainAction.InstallGcc -> installer.installCompilerVersion(action.version, progress)
+                        is ToolchainAction.SelectGcc -> installer.selectCompilerVersion(action.version)
+                        is ToolchainAction.RemoveGcc -> installer.removeCompilerVersion(action.version, progress)
+                        is ToolchainAction.InstallSdkPlatform -> installer.installSdkPlatform(action.api, progress)
+                        is ToolchainAction.SelectSdkPlatform -> installer.selectSdkPlatform(action.api)
+                        is ToolchainAction.RemoveSdkPlatform -> installer.removeSdkPlatform(action.api, progress)
+                        is ToolchainAction.InstallCmake -> installer.installCmakeVersion(action.version, action.url, action.sha256, progress)
+                        is ToolchainAction.SelectCmake -> installer.selectCmakeVersion(action.version)
+                        is ToolchainAction.RemoveCmake -> installer.removeCmakeVersion(action.version, progress)
+                        is ToolchainAction.InstallNdk -> installer.installNdkArchive(action.version, action.url, action.sha256, progress)
+                        is ToolchainAction.SelectNdk -> installer.selectNdkVersion(action.version)
+                        is ToolchainAction.RemoveNdk -> installer.removeNdkVersion(action.version, progress)
+                    }
+                    installer.toolchainInventory()
+                }
+            }
+            _state.update { state ->
+                state.copy(
+                    toolchainInventory = result.getOrElse { state.toolchainInventory },
+                    toolchainManagerBusy = false,
+                    toolchainManagerProgress = if (result.isSuccess) 1f else 0f,
+                    toolchainManagerMessage = result.fold(
+                        onSuccess = { toolchainActionSuccessMessage(action) },
+                        onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
+                    ),
+                    toastMessage = result.fold(
+                        onSuccess = { toolchainActionSuccessMessage(action) },
+                        onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun toolchainActionSuccessMessage(action: ToolchainAction): String = when (action) {
+        ToolchainAction.Refresh -> "Toolchain inventory refreshed."
+        is ToolchainAction.InstallGcc -> "GCC/G++ \${action.version} installed."
+        is ToolchainAction.SelectGcc -> "GCC/G++ \${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveGcc -> "GCC/G++ \${action.version} removed."
+        is ToolchainAction.InstallSdkPlatform -> "Android SDK API \${action.api} installed."
+        is ToolchainAction.SelectSdkPlatform -> "Android SDK API \${action.api} selected for project scripts."
+        is ToolchainAction.RemoveSdkPlatform -> "Android SDK API \${action.api} removed."
+        is ToolchainAction.InstallCmake -> "CMake \${action.version} installed."
+        is ToolchainAction.SelectCmake -> "CMake \${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveCmake -> "CMake \${action.version} removed."
+        is ToolchainAction.InstallNdk -> "NDK \${action.version} installed."
+        is ToolchainAction.SelectNdk -> "NDK \${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveNdk -> "NDK \${action.version} removed."
     }
 
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {
