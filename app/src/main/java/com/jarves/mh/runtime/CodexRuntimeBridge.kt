@@ -302,6 +302,6 @@ class CodexRuntimeBridge(
     }
 
     companion object {
-        const val CODEX_GUEST_PATH = "/usr/local/bin/codex"
+        const val CODEX_GUEST_PATH = "/usr/local/lib/nodejs/bin/codex"
     }
 }
