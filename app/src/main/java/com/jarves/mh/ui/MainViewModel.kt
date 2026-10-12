@@ -63,6 +63,8 @@ import com.jarves.mh.runtime.RuntimeInstallProgress
 import com.jarves.mh.runtime.RuntimeInstaller
 import com.jarves.mh.runtime.ToolchainAction
 import com.jarves.mh.runtime.ToolchainInventory
+import com.jarves.mh.runtime.ToolchainManagerSnapshot
+import com.jarves.mh.runtime.ToolchainProjectProfile
 import com.jarves.mh.runtime.RuntimeSetupController
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.RuntimeSetupSnapshot
@@ -365,6 +367,7 @@ data class AppUiState(
     val toolchainManagerProgress: Float = 0f,
     val toolchainProfileProjectId: String? = null,
     val toolchainProfileSaved: Boolean = false,
+    val toolchainProjectProfile: ToolchainProjectProfile? = null,
     val agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val primaryAgentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val installedAgentVersions: Map<AgentKind, String> = emptyMap(),
@@ -2834,15 +2837,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    installer.toolchainInventory() to (projectId?.let { installer.hasProjectToolchainProfile(it) } == true)
+                    val inventory = installer.toolchainInventory()
+                    ToolchainManagerSnapshot(
+                        inventory = inventory,
+                        projectId = projectId,
+                        projectProfileSaved = projectId?.let { installer.hasProjectToolchainProfile(it) } == true,
+                        projectProfile = projectId?.let { installer.loadProjectToolchainProfile(it) },
+                    )
                 }
             }
             _state.update { current ->
                 val refreshed = result.getOrNull()
+                val sameProject = refreshed != null && refreshed.projectId == current.activeProject?.id
                 current.copy(
-                    toolchainInventory = refreshed?.first ?: current.toolchainInventory,
+                    toolchainInventory = refreshed?.inventory ?: current.toolchainInventory,
                     toolchainProfileProjectId = current.activeProject?.id,
-                    toolchainProfileSaved = current.activeProject?.id == projectId && refreshed?.second == true,
+                    toolchainProfileSaved = if (sameProject) refreshed.projectProfileSaved
+                        else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProfileSaved else false,
+                    toolchainProjectProfile = if (sameProject) refreshed.projectProfile
+                        else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProjectProfile else null,
                     toolchainManagerBusy = false,
                     toolchainManagerProgress = 0f,
                     toolchainManagerMessage = result.exceptionOrNull()?.message?.take(240),
@@ -2859,6 +2872,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val current = _state.value
         if (current.toolchainManagerBusy) return
+        val profileProjectId = when (action) {
+            is ToolchainAction.SaveProjectProfile -> action.projectId
+            is ToolchainAction.ClearProjectProfile -> action.projectId
+            else -> current.activeProject?.id
+        }
         val removesTool = action is ToolchainAction.RemoveGcc ||
             action is ToolchainAction.RemoveSdkPlatform ||
             action is ToolchainAction.RemoveCmake ||
@@ -2899,33 +2917,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         is ToolchainAction.InstallNdk -> installer.installNdkArchive(action.version, action.url, action.sha256, progress)
                         is ToolchainAction.SelectNdk -> installer.selectNdkVersion(action.version)
                         is ToolchainAction.RemoveNdk -> installer.removeNdkVersion(action.version, progress)
-                        is ToolchainAction.SaveProjectProfile -> installer.saveProjectToolchainProfile(action.projectId)
+                        is ToolchainAction.SaveProjectProfile -> installer.saveProjectToolchainProfile(
+                            action.projectId,
+                            ToolchainProjectProfile(
+                                gccVersion = action.gccVersion,
+                                sdkApi = action.sdkApi,
+                                cmakeVersion = action.cmakeVersion,
+                                ndkVersion = action.ndkVersion,
+                            ),
+                        )
                         is ToolchainAction.ClearProjectProfile -> installer.clearProjectToolchainProfile(action.projectId)
                     }
-                    installer.toolchainInventory()
+                    ToolchainManagerSnapshot(
+                        inventory = installer.toolchainInventory(),
+                        projectId = profileProjectId,
+                        projectProfileSaved = profileProjectId?.let { installer.hasProjectToolchainProfile(it) } == true,
+                        projectProfile = profileProjectId?.let { installer.loadProjectToolchainProfile(it) },
+                    )
                 }
             }
             _state.update { state ->
+                val refreshed = result.getOrNull()
+                val sameProject = refreshed != null && refreshed.projectId == state.activeProject?.id
                 state.copy(
-                    toolchainInventory = result.getOrElse { state.toolchainInventory },
+                    toolchainInventory = refreshed?.inventory ?: state.toolchainInventory,
                     toolchainManagerBusy = false,
                     toolchainManagerProgress = if (result.isSuccess) 1f else 0f,
                     toolchainManagerMessage = result.fold(
                         onSuccess = { toolchainActionSuccessMessage(action) },
                         onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
                     ),
-                    toolchainProfileProjectId = when (action) {
-                        is ToolchainAction.SaveProjectProfile -> action.projectId
-                        is ToolchainAction.ClearProjectProfile -> action.projectId
-                        else -> state.activeProject?.id
-                    },
-                    toolchainProfileSaved = when (action) {
-                        is ToolchainAction.SaveProjectProfile -> result.isSuccess ||
-                            (state.toolchainProfileProjectId == action.projectId && state.toolchainProfileSaved)
-                        is ToolchainAction.ClearProjectProfile -> !result.isSuccess &&
-                            state.toolchainProfileProjectId == action.projectId && state.toolchainProfileSaved
-                        else -> state.activeProject?.id == state.toolchainProfileProjectId && state.toolchainProfileSaved
-                    },
+                    toolchainProfileProjectId = state.activeProject?.id,
+                    toolchainProfileSaved = if (sameProject) refreshed.projectProfileSaved
+                        else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProfileSaved else false,
+                    toolchainProjectProfile = if (sameProject) refreshed.projectProfile
+                        else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProjectProfile else null,
                     toastMessage = result.fold(
                         onSuccess = { toolchainActionSuccessMessage(action) },
                         onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
