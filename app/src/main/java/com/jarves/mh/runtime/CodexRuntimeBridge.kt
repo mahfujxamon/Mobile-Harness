@@ -95,7 +95,7 @@ class CodexRuntimeBridge(
                 add(provider.model.ifBlank { "gpt-5-codex" })
                 add(fullPrompt)
             }
-            process = installer.process(
+            val running = installer.process(
                 proot = installed.proot,
                 rootfs = installed.rootfs,
                 workspace = workspace,
@@ -103,12 +103,13 @@ class CodexRuntimeBridge(
                 guestCommand = command,
                 guestWorkspacePath = guestWorkspace,
             )
-            activeProcess = process
+            process = running
+            activeProcess = running
             val output = StringBuilder()
-            process.inputStream.bufferedReader().useLines { lines ->
+            running.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
                     if (userStopRequested) {
-                        process?.destroy()
+                        running.destroy()
                         return@forEach
                     }
                     if (line.isBlank()) return@forEach
@@ -158,7 +159,7 @@ class CodexRuntimeBridge(
                     }
                 }
             }
-            val exit = process.waitFor()
+            val exit = running.waitFor()
             if (userStopRequested) throw IllegalStateException("Stopped by user")
             val changed = checkpoints.changedFiles(workspace, before)
             if (changed.isNotEmpty()) {
