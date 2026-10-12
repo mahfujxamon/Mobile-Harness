@@ -269,7 +269,7 @@
     <string name="provider_codex_chatgpt_title">Use your ChatGPT plan</string>
     <string name="provider_codex_chatgpt_desc">Sign in with ChatGPT to use Codex included with your plan. No API key is required. After continuing, open the terminal and run this command:</string>
     <string name="provider_codex_device_command">codex login --device-auth</string>
-    <string name="provider_codex_continue">Continue with ChatGPT sign-in</string>
+    <string name="provider_codex_continue">Save ChatGPT sign-in setup</string>
     <string name="provider_codex_api_instead">Use an API key instead</string>
     <string name="agent_codex_provider_saved">Codex provider saved. Connection will be checked when a task starts.</string>
     <string name="agent_codex_validate_on_run">Codex validates the OpenAI-compatible endpoint when you start a task. Enter the model ID manually.</string>
