@@ -1420,6 +1420,9 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     suspend fun removeBuildToolsVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version != "35.0.0") {
+            "Build Tools 35.0.0 is retained as the Android runtime's verified baseline and Gradle AAPT2 fallback."
+        }
         require(version in toolchainInventory().installedBuildToolsVersions) { "Android Build Tools $version is not installed." }
         require(!isToolchainVersionUsedByProjectProfiles("buildTools", version)) {
             "A project toolchain profile still requires Build Tools $version. Clear or update that profile first."
