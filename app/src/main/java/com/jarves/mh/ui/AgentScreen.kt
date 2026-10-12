@@ -483,7 +483,7 @@ fun AgentScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = ::discoverModels, enabled = !isDiscovering) {
+                    IconButton(onClick = ::discoverModels, enabled = !isDiscovering && state.agentKind != AgentKind.CODEX_CLI) {
                         if (isDiscovering) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = PocketOrange)
                         } else {
@@ -1896,7 +1896,7 @@ private fun AgentProviderCard(
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
                 onClick = onValidate,
-                enabled = (apiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
+                enabled = state.agentKind != AgentKind.CODEX_CLI && (apiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
                     (selectedKind == ProviderKind.CLAUDE || (baseUrl.isNotBlank() && model.isNotBlank())),
                 modifier = Modifier.fillMaxWidth().height(46.dp),
                 shape = RoundedCornerShape(13.dp),
@@ -1919,6 +1919,9 @@ private fun AgentProviderCard(
                     color = PocketOrange,
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            if (state.agentKind == AgentKind.CODEX_CLI) {
+                Text(stringResource(R.string.agent_codex_validate_on_run), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // Claude subscriptions can't be pinged over HTTP; this runs a one-word Claude Code prompt.
             if (selectedKind == ProviderKind.CLAUDE && savedKeys.isNotEmpty() && state.provider.kind == ProviderKind.CLAUDE) {
