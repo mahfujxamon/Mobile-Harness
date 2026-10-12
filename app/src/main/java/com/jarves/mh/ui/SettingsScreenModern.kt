@@ -459,6 +459,35 @@ fun SettingsScreen(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_profile_title), fontWeight = FontWeight.Bold)
+                        val activeToolchainProject = state.activeProject
+                        val projectProfileSaved = activeToolchainProject != null &&
+                            state.toolchainProfileProjectId == activeToolchainProject.id && state.toolchainProfileSaved
+                        Text(
+                            activeToolchainProject?.let { stringResource(R.string.toolchains_profile_active_project, it.name) }
+                                ?: stringResource(R.string.toolchains_profile_project_none),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(if (projectProfileSaved) R.string.toolchains_profile_saved else R.string.toolchains_profile_inherited),
+                            fontSize = 12.sp,
+                            color = if (projectProfileSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = { activeToolchainProject?.let { onToolchainAction(ToolchainAction.SaveProjectProfile(it.id)) } },
+                            enabled = !state.toolchainManagerBusy && activeToolchainProject != null && inventory.runtimeAvailable,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_profile_save)) }
+                        if (projectProfileSaved && activeToolchainProject != null) {
+                            OutlinedButton(
+                                onClick = { onToolchainAction(ToolchainAction.ClearProjectProfile(activeToolchainProject.id)) },
+                                enabled = !state.toolchainManagerBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(R.string.toolchains_profile_clear)) }
+                        }
+                        HorizontalDivider()
                         OutlinedButton(
                             onClick = { onToolchainAction(ToolchainAction.Refresh) },
                             enabled = !state.toolchainManagerBusy,
