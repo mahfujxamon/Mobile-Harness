@@ -94,9 +94,9 @@ class CodexRuntimeBridge(
                 // Keep Codex confined to the current project workspace instead of disabling its sandbox.
                 add("--sandbox")
                 add("workspace-write")
-                // --ask-for-approval is rejected by some installed Codex CLI versions.
-                // --full-auto keeps exec non-interactive while retaining workspace-write sandboxing.
-                add("--full-auto")
+                // Use the approval option supported by the installed Codex CLI.
+                // Keep workspace-write sandboxing; do not bypass the sandbox.
+                add("--approve-for-me")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                     val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
