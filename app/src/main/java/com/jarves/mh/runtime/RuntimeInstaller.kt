@@ -1195,13 +1195,19 @@ class RuntimeInstaller(private val context: Context) {
         val selectedApi = requestedApi?.takeIf { it in sdkPlatforms }
             ?: 36.takeIf { 36 in sdkPlatforms } ?: sdkPlatforms.lastOrNull()
 
-        val cmakeVersions = File(sdk, "cmake").listFiles().orEmpty()
+        val sdkCmakeVersions = File(sdk, "cmake").listFiles().orEmpty()
             .filter { dir ->
                 val executable = File(dir, "bin/cmake")
                 executable.isFile && executable.canExecute() && isAarch64Elf(executable)
-            }.map { it.name }.sortedWith(versionComparator())
+            }.map { it.name }
+        // Ubuntu's apt CMake remains a usable fallback but is managed by apt, not the versioned archive UI.
+        val systemCmake = File(rootfs, "usr/bin/cmake")
+            .takeIf { it.isFile && it.canExecute() && isAarch64Elf(it) }
+        val cmakeVersions = (sdkCmakeVersions + listOfNotNull("system".takeIf { systemCmake != null }))
+            .distinct().sortedWith(versionComparator())
         val selectedCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
             ?.takeIf { it in cmakeVersions }
+            ?: "system".takeIf { it in cmakeVersions }
         val ndkVersions = File(sdk, "ndk").listFiles().orEmpty()
             .filter(::isValidNativeNdk).map { it.name }.sortedWith(versionComparator())
         val selectedNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
@@ -1360,6 +1366,7 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     suspend fun removeCmakeVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version != "system") { "The Ubuntu apt-managed CMake fallback cannot be removed by the versioned archive manager." }
         require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed" }
         require(File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull() != version) {
             "Select another CMake version before removing $version."
