@@ -418,6 +418,15 @@
     <string name="toolchains_gcc_version">GCC/G++ %1$s</string>
     <string name="toolchains_cmake_version">CMake %1$s</string>
     <string name="toolchains_ndk_version">NDK %1$s</string>
+    <string name="toolchains_profile_title">Active project profile</string>
+    <string name="toolchains_profile_description">Save the current compiler and Android tool selections for this project only. Other projects keep global defaults. Profiles are stored privately by Mobile Harness, not inside your repository.</string>
+    <string name="toolchains_profile_active_project">Project: %1$s</string>
+    <string name="toolchains_profile_project_none">No active project. Open a project to save per-project toolchain selections.</string>
+    <string name="toolchains_profile_saved">A project-specific toolchain profile is saved and will apply to new processes for this project.</string>
+    <string name="toolchains_profile_inherited">This project currently inherits global toolchain selections.</string>
+    <string name="toolchains_profile_save">Save current selections to project</string>
+    <string name="toolchains_profile_clear">Use global defaults for this project</string>
+
 
 
 </resources>
