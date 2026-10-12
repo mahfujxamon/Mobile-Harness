@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -162,9 +164,19 @@ fun SettingsScreen(
     var ndkVersionInput by rememberSaveable { mutableStateOf("") }
     var ndkUrlInput by rememberSaveable { mutableStateOf("") }
     var ndkShaInput by rememberSaveable { mutableStateOf("") }
+    var projectGccOverride by rememberSaveable { mutableStateOf("") }
+    var projectApiOverride by rememberSaveable { mutableStateOf("") }
+    var projectCmakeOverride by rememberSaveable { mutableStateOf("") }
+    var projectNdkOverride by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(state.activeProject?.id) {
         onToolchainAction(ToolchainAction.Refresh)
+    }
+    LaunchedEffect(state.toolchainProfileProjectId, state.toolchainProjectProfile) {
+        projectGccOverride = state.toolchainProjectProfile?.gccVersion.orEmpty()
+        projectApiOverride = state.toolchainProjectProfile?.sdkApi?.toString().orEmpty()
+        projectCmakeOverride = state.toolchainProjectProfile?.cmakeVersion.orEmpty()
+        projectNdkOverride = state.toolchainProjectProfile?.ndkVersion.orEmpty()
     }
 
     stackPendingRemoval?.let { stack ->
@@ -480,11 +492,59 @@ fun SettingsScreen(
                             fontSize = 12.sp,
                             color = if (projectProfileSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Text(
+                            stringResource(R.string.toolchains_profile_description),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_gcc_override),
+                            selected = projectGccOverride,
+                            options = inventory.installedGccVersions,
+                            inheritedValue = inventory.selectedGccVersion,
+                            onSelected = { projectGccOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_sdk_override),
+                            selected = projectApiOverride,
+                            options = inventory.installedSdkPlatforms.map(Int::toString),
+                            inheritedValue = inventory.selectedSdkApi?.toString() ?: "none",
+                            onSelected = { projectApiOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_cmake_override),
+                            selected = projectCmakeOverride,
+                            options = inventory.installedCmakeVersions,
+                            inheritedValue = inventory.selectedCmakeVersion ?: "none",
+                            onSelected = { projectCmakeOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_ndk_override),
+                            selected = projectNdkOverride,
+                            options = inventory.installedNdkVersions,
+                            inheritedValue = inventory.selectedNdkVersion ?: "none",
+                            onSelected = { projectNdkOverride = it },
+                        )
+                        val hasProjectOverride = projectGccOverride.isNotBlank() ||
+                            projectApiOverride.isNotBlank() || projectCmakeOverride.isNotBlank() || projectNdkOverride.isNotBlank()
                         Button(
-                            onClick = { activeToolchainProject?.let { onToolchainAction(ToolchainAction.SaveProjectProfile(it.id)) } },
-                            enabled = !state.toolchainManagerBusy && activeToolchainProject != null && inventory.runtimeAvailable,
+                            onClick = {
+                                activeToolchainProject?.let { project ->
+                                    onToolchainAction(
+                                        ToolchainAction.SaveProjectProfile(
+                                            projectId = project.id,
+                                            gccVersion = projectGccOverride.takeIf(String::isNotBlank),
+                                            sdkApi = projectApiOverride.toIntOrNull(),
+                                            cmakeVersion = projectCmakeOverride.takeIf(String::isNotBlank),
+                                            ndkVersion = projectNdkOverride.takeIf(String::isNotBlank),
+                                        ),
+                                    )
+                                }
+                            },
+                            enabled = !state.toolchainManagerBusy && activeToolchainProject != null &&
+                                inventory.runtimeAvailable && hasProjectOverride,
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text(stringResource(R.string.toolchains_profile_save)) }
+                        ) { Text(stringResource(R.string.toolchains_profile_save_overrides)) }
                         if (projectProfileSaved && activeToolchainProject != null) {
                             OutlinedButton(
                                 onClick = { onToolchainAction(ToolchainAction.ClearProjectProfile(activeToolchainProject.id)) },
@@ -1443,6 +1503,57 @@ private fun DebugUpdateChannelSection(
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+
+@Composable
+private fun ToolchainOverrideSelector(
+    label: String,
+    selected: String,
+    options: List<String>,
+    inheritedValue: String,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    fun display(value: String): String =
+        if (value == "system") "CMake (Ubuntu system package)" else value
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (selected.isBlank()) stringResource(R.string.toolchains_profile_global_default, inheritedValue) else display(selected),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.toolchains_profile_inherit_global, inheritedValue)) },
+                    onClick = {
+                        onSelected("")
+                        expanded = false
+                    },
+                )
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(display(option)) },
+                        onClick = {
+                            onSelected(option)
+                            expanded = false
+                        },
+                    )
+                }
+            }
         }
     }
 }
