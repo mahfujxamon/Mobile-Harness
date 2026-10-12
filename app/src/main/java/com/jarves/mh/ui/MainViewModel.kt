@@ -363,6 +363,8 @@ data class AppUiState(
     val toolchainManagerBusy: Boolean = false,
     val toolchainManagerMessage: String? = null,
     val toolchainManagerProgress: Float = 0f,
+    val toolchainProfileProjectId: String? = null,
+    val toolchainProfileSaved: Boolean = false,
     val agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val primaryAgentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val installedAgentVersions: Map<AgentKind, String> = emptyMap(),
@@ -2827,12 +2829,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Refreshes installed side-by-side toolchains shown in Settings. */
     fun refreshToolchainInventory() {
         if (_state.value.toolchainManagerBusy) return
+        val projectId = _state.value.activeProject?.id
         _state.update { it.copy(toolchainManagerBusy = true, toolchainManagerMessage = null) }
         viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { installer.toolchainInventory() } }
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    installer.toolchainInventory() to (projectId?.let { installer.hasProjectToolchainProfile(it) } == true)
+                }
+            }
             _state.update { current ->
+                val refreshed = result.getOrNull()
                 current.copy(
-                    toolchainInventory = result.getOrElse { current.toolchainInventory },
+                    toolchainInventory = refreshed?.first ?: current.toolchainInventory,
+                    toolchainProfileProjectId = current.activeProject?.id,
+                    toolchainProfileSaved = current.activeProject?.id == projectId && refreshed?.second == true,
                     toolchainManagerBusy = false,
                     toolchainManagerProgress = 0f,
                     toolchainManagerMessage = result.exceptionOrNull()?.message?.take(240),
@@ -2889,6 +2899,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         is ToolchainAction.InstallNdk -> installer.installNdkArchive(action.version, action.url, action.sha256, progress)
                         is ToolchainAction.SelectNdk -> installer.selectNdkVersion(action.version)
                         is ToolchainAction.RemoveNdk -> installer.removeNdkVersion(action.version, progress)
+                        is ToolchainAction.SaveProjectProfile -> installer.saveProjectToolchainProfile(action.projectId)
+                        is ToolchainAction.ClearProjectProfile -> installer.clearProjectToolchainProfile(action.projectId)
                     }
                     installer.toolchainInventory()
                 }
@@ -2902,6 +2914,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         onSuccess = { toolchainActionSuccessMessage(action) },
                         onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
                     ),
+                    toolchainProfileProjectId = when (action) {
+                        is ToolchainAction.SaveProjectProfile -> action.projectId
+                        is ToolchainAction.ClearProjectProfile -> action.projectId
+                        else -> state.activeProject?.id
+                    },
+                    toolchainProfileSaved = when (action) {
+                        is ToolchainAction.SaveProjectProfile -> result.isSuccess ||
+                            (state.toolchainProfileProjectId == action.projectId && state.toolchainProfileSaved)
+                        is ToolchainAction.ClearProjectProfile -> !result.isSuccess &&
+                            state.toolchainProfileProjectId == action.projectId && state.toolchainProfileSaved
+                        else -> state.activeProject?.id == state.toolchainProfileProjectId && state.toolchainProfileSaved
+                    },
                     toastMessage = result.fold(
                         onSuccess = { toolchainActionSuccessMessage(action) },
                         onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
@@ -2925,6 +2949,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         is ToolchainAction.InstallNdk -> "NDK ${action.version} installed."
         is ToolchainAction.SelectNdk -> "NDK ${action.version} selected for new terminal sessions."
         is ToolchainAction.RemoveNdk -> "NDK ${action.version} removed."
+        is ToolchainAction.SaveProjectProfile -> "Saved toolchain selections for this project."
+        is ToolchainAction.ClearProjectProfile -> "Removed project overrides; global toolchain selections apply again."
     }
 
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {
