@@ -59,7 +59,7 @@ class CodexRuntimeBridge(
             val apiKey = secretFor(provider).orEmpty()
             val chatLoginExists = File(installed.rootfs, "root/.codex/auth.json").isFile
             check(apiKey.isNotBlank() || chatLoginExists) {
-                "Add an OpenAI API key in Settings, or run 'codex login' in the terminal first."
+                "Sign in with your ChatGPT plan: open the terminal and run 'codex login --device-auth', then complete browser verification. Alternatively, configure an OpenAI API key."
             }
             if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                 check(provider.baseUrl.isNotBlank()) {
@@ -91,7 +91,11 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                add("--dangerously-bypass-approvals-and-sandbox")
+                // Keep Codex confined to the current project workspace instead of disabling its sandbox.
+                add("--sandbox")
+                add("workspace-write")
+                add("--ask-for-approval")
+                add("never")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                     val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
@@ -107,8 +111,10 @@ class CodexRuntimeBridge(
                     add("--config")
                     add("model_providers.mobile_harness.requires_openai_auth=true")
                 }
-                add("--model")
-                add(provider.model.ifBlank { "gpt-5-codex" })
+                if (provider.model.isNotBlank()) {
+                    add("--model")
+                    add(provider.model)
+                }
                 add(fullPrompt)
             }
             val running = installer.process(
