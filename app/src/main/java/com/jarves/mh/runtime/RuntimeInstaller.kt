@@ -1244,7 +1244,7 @@ class RuntimeInstaller(private val context: Context) {
     suspend fun removeCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
         require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
         require(version != "10") { "GCC/G++ 10 is retained for Node 24 native-addon builds and Graft compatibility." }
-        require(File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull() != version) {
+        require(toolchainInventory().selectedGccVersion != version) {
             "Select another GCC/G++ version before removing $version."
         }
         aptRemove(installedRuntime().proot, listOf("gcc-$version", "g++-$version"), 0.2f, onProgress)
