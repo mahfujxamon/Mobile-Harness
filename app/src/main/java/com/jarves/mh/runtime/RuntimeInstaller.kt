@@ -1597,7 +1597,7 @@ class RuntimeInstaller(private val context: Context) {
             environment = buildMap {
                 put("HOME", "/root")
                 val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
-                val basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                val basePath = "/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
                 if (androidReady) {
                     put("ANDROID_HOME", "/root/android-sdk")
                     put("ANDROID_SDK_ROOT", "/root/android-sdk")
@@ -1613,7 +1613,7 @@ class RuntimeInstaller(private val context: Context) {
                 // Node 24's V8 headers. These defaults apply to every fresh terminal process;
                 // per-command environment assignments can still override them.
                 if (File(rootfs, "usr/bin/python3").canExecute()) {
-                    put("npm_config_python", "/usr/bin/python3")
+                    put("PYTHON", "/usr/bin/python3")
                 }
                 if (File(rootfs, "usr/bin/gcc-10").canExecute() && File(rootfs, "usr/bin/g++-10").canExecute()) {
                     put("CC", "/usr/bin/gcc-10")
