@@ -91,11 +91,10 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Keep Codex confined to the current project workspace instead of disabling its sandbox.
-                add("--sandbox")
-                add("workspace-write")
-                // Use the approval option supported by the installed Codex CLI.
-                // Keep workspace-write sandboxing; do not bypass the sandbox.
+                // Codex CLI 0.162.x provides --approve-for-me as the supported
+                // non-interactive approval mode and configures workspace-write itself.
+                // Do not also pass --sandbox: let this single option own the approval/sandbox
+                // policy so the CLI does not receive conflicting policy configuration.
                 add("--approve-for-me")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
