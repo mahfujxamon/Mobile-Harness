@@ -91,11 +91,13 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Codex CLI 0.162.x provides --approve-for-me as the supported
-                // non-interactive approval mode and configures workspace-write itself.
-                // Do not also pass --sandbox: let this single option own the approval/sandbox
-                // policy so the CLI does not receive conflicting policy configuration.
-                add("--approve-for-me")
+                // Match the app's existing Antigravity "work without per-command prompts"
+                // experience. Codex runs inside RuntimeInstaller's isolated Android PRoot
+                // rootfs with only the selected project workspace mounted for editing.
+                // This avoids Codex's nested sandbox filesystem-mount failures in PRoot.
+                // IMPORTANT: this disables Codex's own approval/sandbox layer; the app's
+                // PRoot boundary is the outer isolation layer.
+                add("--dangerously-bypass-approvals-and-sandbox")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                     val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
