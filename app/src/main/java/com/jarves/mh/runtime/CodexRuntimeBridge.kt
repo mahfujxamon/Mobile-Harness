@@ -115,7 +115,9 @@ class CodexRuntimeBridge(
                     add("--model")
                     add(provider.model)
                 }
-                add(fullPrompt)
+                // Match Codex's documented stdin-prompt mode. The prompt is sent over stdin
+                // exactly once, rather than as argv while the CLI also observes an open stdin.
+                add("-")
             }
             val running = installer.process(
                 proot = installed.proot,
@@ -127,10 +129,13 @@ class CodexRuntimeBridge(
             )
             process = running
             activeProcess = running
-            // The complete prompt is passed as a command-line argument above. Close the
-            // guest stdin immediately so Codex exec does not wait for an additional piped
-            // stdin block (which leaves the chat stuck at "Reading additional input from stdin...").
-            runCatching { running.outputStream.close() }
+            // Codex exec accepts "-" to read the prompt from stdin. Write the complete
+            // context once, then close stdin to signal EOF and let the non-interactive turn run.
+            running.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
+                writer.write(fullPrompt)
+                writer.newLine()
+                writer.flush()
+            }
             val output = StringBuilder()
             val native = running as? NativeSpawnProcess
                 ?: error("Unsupported Android runtime process")
