@@ -127,6 +127,10 @@ class CodexRuntimeBridge(
             )
             process = running
             activeProcess = running
+            // The complete prompt is passed as a command-line argument above. Close the
+            // guest stdin immediately so Codex exec does not wait for an additional piped
+            // stdin block (which leaves the chat stuck at "Reading additional input from stdin...").
+            runCatching { running.outputStream.close() }
             val output = StringBuilder()
             val native = running as? NativeSpawnProcess
                 ?: error("Unsupported Android runtime process")
