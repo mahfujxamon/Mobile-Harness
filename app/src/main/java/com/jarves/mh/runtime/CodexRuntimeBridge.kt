@@ -91,8 +91,8 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Codex CLI versions bundled by the app do not accept a --search flag.
-                // Use the supported config setting for OpenAI's live web search instead.
+                // Do not pass --search: supported Codex CLI releases reject this flag.
+                // OpenAI's supported config enables live web search without an unknown CLI argument.
                 if (provider.kind == ProviderKind.OPENAI) {
                     add("--config")
                     add("web_search=\"live\"")
