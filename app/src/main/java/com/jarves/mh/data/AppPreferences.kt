@@ -192,7 +192,7 @@ class AppPreferences(private val context: Context) {
             agent == AgentKind.DEEPSEEK_HARNESS && (!hasAgentProfile || legacyClaudeDefaultInDeepSeek) -> ProviderKind.DEEPSEEK
             storedKind != null && storedKind in providersForAgent(agent) -> storedKind
             agent == AgentKind.DEEPSEEK_HARNESS -> ProviderKind.DEEPSEEK
-            agent == AgentKind.CODEX_CLI -> ProviderKind.CUSTOM
+            agent == AgentKind.CODEX_CLI -> ProviderKind.OPENAI
             else -> ProviderKind.ANTHROPIC
         }
         val useStoredValues = storedKind == kind
