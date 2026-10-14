@@ -1,7 +1,9 @@
 package com.jarves.mh.ui
 
 import android.Manifest
+import android.app.Activity
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
@@ -14,6 +16,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -116,6 +119,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
@@ -4541,16 +4545,15 @@ private fun WorkspaceScreen(
 
     // Follow new tokens/updates only when user is at the bottom and has not scrolled up to read.
     LaunchedEffect(
-        state.messages.size,
-        state.messages.lastOrNull()?.text?.length,
-        state.liveProcess.size,
-        state.liveProcess.lastOrNull()?.detail,
+        state.messages,
+        state.liveProcess,
         state.pendingApproval,
+        state.isRunning,
     ) {
         if (!state.isRunning || chatItemCount <= 0 || userScrolledUp || chatListState.isScrollInProgress) return@LaunchedEffect
-        if (!chatListState.canScrollForward) {
-            chatListState.scrollToItem(chatItemCount - 1)
-        }
+        // Follow changes from every message, not only the last one: older live output can grow too.
+        // Once follow mode is active, scroll even if the new content has already made the list scrollable.
+        chatListState.scrollToItem((chatItemCount - 1).coerceAtLeast(0))
     }
 
     var selectedTab by rememberSaveable { mutableStateOf(WorkspaceTab.CHAT) }
@@ -6264,6 +6267,7 @@ private fun ChatTab(
     onContinueHere: () -> Unit = {},
 ) {
     val view = LocalView.current
+    val context = LocalContext.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
     // when the task finishes or the user leaves the chat tab.
     DisposableEffect(isRunning) {
@@ -6271,6 +6275,48 @@ private fun ChatTab(
         onDispose { view.keepScreenOn = false }
     }
     var prompt by rememberSaveable { mutableStateOf("") }
+    val speechInputLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val spokenText = result.data
+                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                    ?.firstOrNull()
+                    .orEmpty()
+                    .trim()
+                if (spokenText.isNotEmpty()) {
+                    prompt = listOf(prompt.trim(), spokenText)
+                        .filter { it.isNotEmpty() }
+                        .joinToString(" ")
+                } else {
+                    Toast.makeText(context, context.getString(R.string.chat_voice_no_result), Toast.LENGTH_SHORT).show()
+                }
+            }
+        },
+    )
+    val startVoiceInput: () -> Unit = {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.chat_voice_prompt))
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        }
+        try {
+            speechInputLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, context.getString(R.string.chat_voice_unavailable), Toast.LENGTH_LONG).show()
+        }
+    }
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) {
+                startVoiceInput()
+            } else {
+                Toast.makeText(context, context.getString(R.string.chat_voice_permission_denied), Toast.LENGTH_LONG).show()
+            }
+        },
+    )
     val chatScope = rememberCoroutineScope()
     // True while the newest item (message, live panel, or approval card) is on screen.
     val readerAtBottom by remember {
@@ -6286,6 +6332,11 @@ private fun ChatTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (messages.isEmpty() && liveProcess.isEmpty() && !thinkingActive && approval == null) {
+                    item(key = "chat-empty-state") {
+                        ChatWelcomePanel(onPromptSelected = { prompt = it })
+                    }
+                }
                 items(messages, key = { it.id }) { message ->
                     if (message.workItems.isNotEmpty()) {
                         WorkBlockCard(message)
@@ -6489,7 +6540,23 @@ private fun ChatTab(
                             },
                         )
 
-                        Spacer(Modifier.width(4.dp))
+                        if (!isRunning || canSend) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                    .clickable { microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = stringResource(R.string.chat_voice_input),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
 
                         if (isRunning) {
                             Box(
@@ -6540,6 +6607,111 @@ private fun ChatTab(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatWelcomePanel(onPromptSelected: (String) -> Unit) {
+    val understandPrompt = stringResource(R.string.chat_prompt_understand)
+    val debugPrompt = stringResource(R.string.chat_prompt_debug)
+    val featurePrompt = stringResource(R.string.chat_prompt_feature)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 26.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.size(48.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Code,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(23.dp),
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    text = stringResource(R.string.chat_empty_kicker),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.5.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = stringResource(R.string.chat_empty_title),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 27.sp,
+                    lineHeight = 32.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = stringResource(R.string.chat_empty_description),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+        Text(
+            text = stringResource(R.string.chat_empty_starters),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 10.sp,
+            letterSpacing = 1.2.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AssistChip(
+                onClick = { onPromptSelected(understandPrompt) },
+                label = { Text(stringResource(R.string.chat_suggestion_understand)) },
+                leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            AssistChip(
+                onClick = { onPromptSelected(debugPrompt) },
+                label = { Text(stringResource(R.string.chat_suggestion_debug)) },
+                leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            AssistChip(
+                onClick = { onPromptSelected(featurePrompt) },
+                label = { Text(stringResource(R.string.chat_suggestion_feature)) },
+                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(13.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AttachFile,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp).size(17.dp),
+                )
+                Text(
+                    text = stringResource(R.string.chat_empty_hint),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
             }
         }
     }
