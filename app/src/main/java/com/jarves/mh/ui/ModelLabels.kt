@@ -21,6 +21,7 @@ import com.jarves.mh.model.ProviderKind
 fun ProviderKind.titleRes(): Int = when (this) {
     ProviderKind.CLAUDE -> R.string.provider_title_claude
     ProviderKind.ANTHROPIC -> R.string.provider_title_anthropic
+    ProviderKind.OPENAI -> R.string.provider_title_openai
     ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_title_deepseek
     ProviderKind.KIMI -> R.string.provider_title_kimi
@@ -33,6 +34,7 @@ fun ProviderKind.titleRes(): Int = when (this) {
 fun ProviderKind.subtitleRes(): Int = when (this) {
     ProviderKind.CLAUDE -> R.string.provider_subtitle_claude
     ProviderKind.ANTHROPIC -> R.string.provider_subtitle_anthropic
+    ProviderKind.OPENAI -> R.string.provider_subtitle_openai
     ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_subtitle_deepseek
     ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
