@@ -483,7 +483,7 @@ fun AgentScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = ::discoverModels, enabled = !isDiscovering && state.agentKind != AgentKind.CODEX_CLI) {
+                    IconButton(onClick = ::discoverModels, enabled = !isDiscovering) {
                         if (isDiscovering) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = PocketOrange)
                         } else {
@@ -1029,7 +1029,7 @@ fun AgentScreen(
                             selectedKind = kind
                             baseUrl = kind.defaultBaseUrl
                             model = kind.defaultModel
-                            dshApi = defaultDshApiForProvider(kind)
+                            dshApi = if (state.agentKind == AgentKind.CODEX_CLI && kind == ProviderKind.CUSTOM) "openai-responses" else defaultDshApiForProvider(kind)
                             openRouterProviderOrder = ""
                             openRouterAllowFallbacks = true
                             models = emptyList()
@@ -1114,7 +1114,7 @@ fun AgentScreen(
                                     openRouterProviderOrder = openRouterProviderOrder,
                                     openRouterAllowFallbacks = openRouterAllowFallbacks,
                                 )
-                                if (kind == ProviderKind.CLAUDE || state.agentKind == AgentKind.CODEX_CLI) {
+                                if (kind == ProviderKind.CLAUDE) {
                                     onSaveProvider(profile, apiKey.trim())
                                     status = if (state.agentKind == AgentKind.CODEX_CLI) context.getString(R.string.agent_codex_provider_saved) else context.getString(R.string.st_claude_token_saved_status)
                                     statusOk = true
@@ -1629,7 +1629,7 @@ private fun AgentProviderCard(
                     title = stringResource(if (selectedKind == ProviderKind.CUSTOM) R.string.agent_custom_api_settings else R.string.agent_endpoint_protocol),
                     subtitle = buildString {
                         append(baseUrl.ifBlank { stringResource(R.string.st_base_url_required) })
-                        if (state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) {
+                        if ((state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) || (state.agentKind == AgentKind.CODEX_CLI && selectedKind == ProviderKind.CUSTOM)) {
                             append(" · ")
                             append(if (selectedKind.fixedProtocol) defaultDshApiForProvider(selectedKind) else dshApi)
                         }
@@ -1693,7 +1693,7 @@ private fun AgentProviderCard(
                                 )
                             }
                         }
-                        if (state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS && !selectedKind.fixedProtocol) {
+                        if (((state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) || (state.agentKind == AgentKind.CODEX_CLI && selectedKind == ProviderKind.CUSTOM)) && !selectedKind.fixedProtocol) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(stringResource(R.string.provider_gateway_protocol), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(5.dp))
@@ -1896,7 +1896,7 @@ private fun AgentProviderCard(
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
                 onClick = onValidate,
-                enabled = state.agentKind != AgentKind.CODEX_CLI && (apiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
+                enabled = (apiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
                     (selectedKind == ProviderKind.CLAUDE || (baseUrl.isNotBlank() && model.isNotBlank())),
                 modifier = Modifier.fillMaxWidth().height(46.dp),
                 shape = RoundedCornerShape(13.dp),
