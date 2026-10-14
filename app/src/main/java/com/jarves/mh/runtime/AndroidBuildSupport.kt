@@ -83,12 +83,12 @@ data class AndroidBuildRecord(
 
 internal fun androidGradleCommand(root: File, task: String): String {
     val launcher = File(root, "gradlew").takeIf(File::isFile)?.let { "bash ./gradlew" } ?: "gradle"
-    return "$launcher -Dorg.gradle.jvmargs= --no-daemon --max-workers=2 " +
+    return "$launcher -Dorg.gradle.jvmargs= --no-daemon --max-workers=8 " +
         "--init-script /root/.gradle/init.d/pocketdev-android.gradle " +
         "-Pandroid.aapt2FromMavenOverride=/root/android-sdk/build-tools/35.0.0/aapt2 " +
         // Gradle daemons can remain attached to deleted PRoot paths after an
-        // interrupted build. A bounded, no-daemon invocation is more reliable
-        // on Android and avoids leaving a second busy daemon behind.
+        // interrupted build. Eight Gradle workers are requested explicitly, overriding lower worker caps
+        // and keeping Android build concurrency consistent with app settings.
         "$task --console=plain --stacktrace"
 }
 
