@@ -6205,7 +6205,7 @@ private fun FilesTab(
     }
 }
 
-private const val CHAT_WELCOME_PLACEHOLDER = CHAT_WELCOME_PLACEHOLDER
+private const val CHAT_WELCOME_PLACEHOLDER = "Hi! Tell me what you want to build or change."
 
 private sealed interface FileNameDialog {
     data class Create(val parentPath: String, val isDirectory: Boolean) : FileNameDialog
@@ -7208,7 +7208,7 @@ private fun formatDuration(totalSeconds: Long): String = when {
 
 @Composable
 private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Unit, onOpenAttachment: (ChatAttachment) -> Unit) {
-    val displayedText = if (!message.fromUser && message.text == "Hi! Tell me what you want to build or change.") {
+    val displayedText = if (!message.fromUser && message.text == CHAT_WELCOME_PLACEHOLDER) {
         stringResource(R.string.chat_welcome)
     } else {
         message.text
