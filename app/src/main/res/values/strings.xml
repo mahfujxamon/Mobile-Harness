@@ -211,6 +211,7 @@
     <string name="provider_beta">Beta</string>
     <string name="provider_title_claude">Claude subscription</string>
     <string name="provider_title_anthropic">Anthropic API</string>
+    <string name="provider_title_openai">OpenAI API</string>
     <string name="provider_title_openrouter">OpenRouter</string>
     <string name="provider_title_deepseek">DeepSeek</string>
     <string name="provider_title_kimi">Kimi</string>
@@ -219,6 +220,7 @@
     <string name="provider_title_custom">Custom API</string>
     <string name="provider_subtitle_claude">Pro, Max, Team or Enterprise</string>
     <string name="provider_subtitle_anthropic">Usage billed through Console</string>
+    <string name="provider_subtitle_openai">API key billed through OpenAI Platform</string>
     <string name="provider_subtitle_openrouter">Use your OpenRouter API key</string>
     <string name="provider_subtitle_deepseek">Use your DeepSeek API key</string>
     <string name="provider_subtitle_anthropic_compatible">Anthropic-compatible endpoint</string>
