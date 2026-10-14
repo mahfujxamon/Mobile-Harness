@@ -300,6 +300,8 @@
     <string name="chat_voice_permission_denied">Allow microphone access to dictate a message.</string>
     <string name="chat_voice_unavailable">Speech recognition is not available on this device.</string>
     <string name="chat_voice_no_result">No speech was recognized. Try again.</string>
+    <string name="ws_retry_task_title">Task didn’t finish</string>
+    <string name="ws_retry_task_description">Try again with the same request and attachments. Existing project changes are kept.</string>
     <string name="chat_attach_files">Attach files</string><string name="chat_take_photo">Take photo</string><string name="chat_choose_files">Choose files</string><string name="chat_camera_unavailable">No camera app is available</string>
     <string name="export_busy">Stop the running task, terminal command, build, or file save before exporting.</string>
     <string name="export_success">%1$s exported</string>

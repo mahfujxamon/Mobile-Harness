@@ -275,6 +275,19 @@ private data class TranscriptWrite(
     val messages: List<ChatMessage>,
 )
 
+private const val LEGACY_CHAT_WELCOME_PLACEHOLDER = "Hi! Tell me what you want to build or change."
+
+private fun List<ChatMessage>.withoutLegacyChatWelcome(): List<ChatMessage> =
+    filterNot { !it.fromUser && it.text == LEGACY_CHAT_WELCOME_PLACEHOLDER }
+
+internal fun ChatMessage.isRetryableTaskEnd(interruptedTitle: String): Boolean {
+    if (fromUser) return false
+    val lastItem = workItems.lastOrNull() ?: return false
+    return lastItem.title == "Task stopped" ||
+        lastItem.title == "Task interrupted" ||
+        lastItem.title == interruptedTitle
+}
+
 private data class ImportedZipProject(
     val project: Project,
     val sourceAttachment: ChatAttachment,
@@ -326,9 +339,7 @@ data class AppUiState(
     val openedFile: OpenedFileState? = null,
     val projectExportRunning: Boolean = false,
     val projectExportSucceededAtMillis: Long? = null,
-    val messages: List<ChatMessage> = listOf(
-        ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change."),
-    ),
+    val messages: List<ChatMessage> = emptyList(),
     val pendingAttachments: List<ChatAttachment> = emptyList(),
     val pendingApproval: ToolRequest? = null,
     val changes: List<ChangeItem> = emptyList(),
@@ -3147,7 +3158,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     readOnlyProject = project,
                     readOnlyProjectChats = chats,
                     readOnlyChatId = chat.id,
-                    readOnlyMessages = preferences.loadMessages(project.id, chat.id),
+                    readOnlyMessages = preferences.loadMessages(project.id, chat.id).withoutLegacyChatWelcome(),
                 )
             }
             return
@@ -3160,7 +3171,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val activeChat = chats.first()
         val saved = preferences.loadMessages(project.id, activeChat.id)
-        val msgs = saved.ifEmpty { listOf(ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change.")) }
+        val msgs = saved.withoutLegacyChatWelcome()
         val androidBuild = loadAndroidBuildRecord(project.id)
         _state.update {
             it.copy(
@@ -3297,7 +3308,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 readOnlyChatId = chatId,
-                readOnlyMessages = preferences.loadMessages(project.id, chatId),
+                readOnlyMessages = preferences.loadMessages(project.id, chatId).withoutLegacyChatWelcome(),
             )
         }
     }
@@ -3335,7 +3346,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 projects = listOf(project) + it.projects,
                 activeProject = project,
                 workspaceVisible = true,
-                messages = listOf(ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change.")),
+                messages = emptyList(),
                 liveProcess = emptyList(),
                 liveThinking = false,
                 taskStartedAtMillis = null,
@@ -4111,7 +4122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 projectChats = chats,
                 activeChatId = chat.id,
-                messages = listOf(ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change.")),
+                messages = emptyList(),
                 liveProcess = emptyList(),
                 liveThinking = false,
                 taskStartedAtMillis = null,
@@ -4132,7 +4143,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 activeChatId = chat.id,
-                messages = saved.ifEmpty { listOf(ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change.")) },
+                messages = saved.withoutLegacyChatWelcome(),
                 liveProcess = emptyList(),
                 liveThinking = false,
                 taskStartedAtMillis = null,
@@ -4834,6 +4845,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendPrompt(prompt: String) {
+        submitPrompt(prompt, _state.value.pendingAttachments, clearPendingAttachments = true)
+    }
+
+    /** Replays the latest failed or interrupted request with its original attachments. */
+    fun retryLastTask() {
+        val current = _state.value
+        if (current.isRunning || current.projectTerminalRunning || current.androidBuildRunning) return
+        val lastMessage = current.messages.lastOrNull() ?: return
+        if (!lastMessage.isRetryableTaskEnd(str(R.string.vm_task_interrupted))) return
+        val originalRequest = current.messages.dropLast(1).lastOrNull { it.fromUser } ?: return
+        if (originalRequest.text.isBlank() && originalRequest.attachments.isEmpty()) return
+        submitPrompt(
+            originalRequest.text,
+            originalRequest.attachments,
+            clearPendingAttachments = false,
+        )
+    }
+
+    private fun submitPrompt(
+        prompt: String,
+        attachments: List<ChatAttachment>,
+        clearPendingAttachments: Boolean,
+    ) {
         val project = state.value.activeProject ?: return
         if (_state.value.agentKind == AgentKind.ANTIGRAVITY &&
             _state.value.antigravityAuth.status != AntigravityAuthStatus.SIGNED_IN) {
@@ -4844,7 +4878,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(toastMessage = str(R.string.vm_dsh_claude_unsupported)) }
             return
         }
-        val attachments = state.value.pendingAttachments
         if (prompt.isBlank() && attachments.isEmpty()) return
         if (state.value.isRunning || state.value.androidBuildRunning) {
             queueFollowUp(project, prompt, attachments)
@@ -4854,7 +4887,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(toastMessage = str(R.string.an_wait_terminal_then_send)) }
             return
         }
-        startPrompt(project, prompt, attachments)
+        startPrompt(project, prompt, attachments, clearPendingAttachments)
     }
 
     private fun queueFollowUp(project: Project, prompt: String, attachments: List<ChatAttachment>) {
@@ -4899,7 +4932,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(queuedFollowUps = pendingFollowUps.toList()) }
     }
 
-    private fun startPrompt(project: Project, prompt: String, attachments: List<ChatAttachment>) {
+    private fun startPrompt(
+        project: Project,
+        prompt: String,
+        attachments: List<ChatAttachment>,
+        clearPendingAttachments: Boolean = true,
+    ) {
         // requestText is sent to the agent, so it stays English; the chat title is user-facing.
         val requestText = prompt.trim().ifBlank { "Please review the attached files." }
         updateActiveChatTitle(prompt.trim().ifBlank { str(R.string.md_chat_title_attachments) })
@@ -4907,7 +4945,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val startedAt = System.currentTimeMillis()
             it.copy(
                 messages = it.messages + ChatMessage(fromUser = true, text = prompt.trim(), attachments = attachments),
-                pendingAttachments = emptyList(),
+                pendingAttachments = if (clearPendingAttachments) emptyList() else it.pendingAttachments,
                 isRunning = true,
                 activity = listOf(ActivityItem(str(R.string.vm_understanding_request), str(R.string.vm_preparing_safe_plan), false)) + it.activity,
                 liveProcess = listOf(ActivityItem("Think", requestPlanningSummary(requestText, it.agentKind), false)),

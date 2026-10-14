@@ -4741,6 +4741,7 @@ private fun WorkspaceScreen(
                     listState = chatListState,
                     taskStartedAtMillis = state.workSegmentStartedAtMillis ?: state.taskStartedAtMillis,
                     taskFinishedAtMillis = state.taskFinishedAtMillis,
+                    onRetryTask = viewModel::retryLastTask,
                     thinkingActive = state.liveThinking,
                     agentKind = state.agentKind,
                     pendingAttachments = state.pendingAttachments,
@@ -6267,6 +6268,7 @@ private fun ChatTab(
     readOnly: Boolean = false,
     readOnlyBlocked: Boolean = false,
     onContinueHere: () -> Unit = {},
+    onRetryTask: () -> Unit = {},
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -6277,6 +6279,7 @@ private fun ChatTab(
         onDispose { view.keepScreenOn = false }
     }
     val visibleMessages = messages.filterNot { !it.fromUser && it.text == CHAT_WELCOME_PLACEHOLDER }
+    val latestVisibleMessageId = visibleMessages.lastOrNull()?.id
     var prompt by rememberSaveable { mutableStateOf("") }
     val speechInputLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -6342,7 +6345,11 @@ private fun ChatTab(
                 }
                 items(visibleMessages, key = { it.id }) { message ->
                     if (message.workItems.isNotEmpty()) {
-                        WorkBlockCard(message)
+                        val retryAction = if (
+                            !isRunning && message.id == latestVisibleMessageId &&
+                            message.isRetryableTaskEnd(stringResource(R.string.vm_task_interrupted))
+                        ) onRetryTask else null
+                        WorkBlockCard(message, onRetry = retryAction)
                     } else {
                         MessageBubble(message, onRunInTerminal, onOpenAttachment)
                     }
@@ -6838,20 +6845,71 @@ private fun LiveClaudeProcess(
 }
 
 @Composable
-private fun WorkBlockCard(message: ChatMessage) {
+private fun WorkBlockCard(message: ChatMessage, onRetry: (() -> Unit)? = null) {
     val seconds = (message.workedMillis / 1_000L).coerceAtLeast(1L)
+    val interruptedTitle = stringResource(R.string.vm_task_interrupted)
+    val endedWithoutCompletion = message.isRetryableTaskEnd(interruptedTitle)
     Column {
         ClaudeActivityDisclosure(
             items = message.workItems,
             headline = activityHeadline(message.workItems, seconds, message.workItems.isEmpty()),
         )
-        if (message.workItems.lastOrNull()?.title?.startsWith("Task stopped") == true) {
+        if (endedWithoutCompletion) {
             Text(
                 text = stringResource(R.string.ws_worked_for, formatDuration(seconds)),
                 modifier = Modifier.padding(start = 29.dp, bottom = 6.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
             )
+        }
+        if (onRetry != null && endedWithoutCompletion) {
+            Spacer(Modifier.height(5.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(15.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Surface(
+                        modifier = Modifier.size(34.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.ws_retry_task_title),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.ws_retry_task_description),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                    OutlinedButton(onClick = onRetry) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(stringResource(R.string.action_retry), fontSize = 12.sp)
+                    }
+                }
+            }
         }
     }
 }
