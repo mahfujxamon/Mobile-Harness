@@ -130,7 +130,9 @@ fun inferredDshApiForUrl(baseUrl: String): String {
 
 /** Resolves the protocol DeepSeek Harness will actually use for this saved profile. */
 fun providerProtocolForAgent(profile: ProviderProfile, agent: AgentKind): ProviderProtocol {
-    if (agent != AgentKind.DEEPSEEK_HARNESS || profile.kind !in DSH_PROTOCOL_PROVIDERS) {
+    val isDshGateway = agent == AgentKind.DEEPSEEK_HARNESS && profile.kind in DSH_PROTOCOL_PROVIDERS
+    val isCodexCustomGateway = agent == AgentKind.CODEX_CLI && profile.kind == ProviderKind.CUSTOM
+    if (!isDshGateway && !isCodexCustomGateway) {
         return profile.kind.protocol
     }
     val api = if (profile.kind.fixedProtocol) defaultDshApiForProvider(profile.kind) else profile.dshApi
