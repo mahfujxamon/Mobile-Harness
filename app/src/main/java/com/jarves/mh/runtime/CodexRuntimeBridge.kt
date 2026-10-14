@@ -91,6 +91,8 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
+                // Codex keeps live web search disabled unless explicitly requested.
+                add("--search")
                 // Keep Codex confined to the current project workspace instead of disabling its sandbox.
                 add("--sandbox")
                 add("workspace-write")
