@@ -83,13 +83,29 @@ data class AndroidBuildRecord(
 
 internal fun androidGradleCommand(root: File, task: String): String {
     val launcher = File(root, "gradlew").takeIf(File::isFile)?.let { "bash ./gradlew" } ?: "gradle"
-    return "$launcher -Dorg.gradle.jvmargs= --no-daemon --max-workers=8 " +
+    val maxWorkers = configuredAndroidGradleWorkers(root)
+    return "$launcher -Dorg.gradle.jvmargs= --no-daemon --max-workers=$maxWorkers " +
         "--init-script /root/.gradle/init.d/pocketdev-android.gradle " +
         "-Pandroid.aapt2FromMavenOverride=/root/android-sdk/build-tools/35.0.0/aapt2 " +
-        // Gradle daemons can remain attached to deleted PRoot paths after an
-        // interrupted build. Eight Gradle workers are requested explicitly, overriding lower worker caps
-        // and keeping Android build concurrency consistent with app settings.
+        // Prefer the project's Gradle worker setting, then the user's Gradle setting;
+        // use eight workers only when neither configuration specifies a value.
         "$task --console=plain --stacktrace"
+}
+
+internal fun configuredAndroidGradleWorkers(root: File): Int {
+    val propertyPattern = Regex("""^\s*org\.gradle\.workers\.max\s*=\s*(\d+)\s*(?:#.*)?$""")
+    val candidates = listOf(File(root, "gradle.properties"), File("/root/.gradle/gradle.properties"))
+    for (file in candidates) {
+        if (!file.isFile) continue
+        val value = file.useLines { lines ->
+            lines.map(String::trim)
+                .filter { it.isNotEmpty() && !it.startsWith("#") && !it.startsWith("!") }
+                .mapNotNull { propertyPattern.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }
+                .firstOrNull { it > 0 }
+        }
+        if (value != null) return value
+    }
+    return 8
 }
 
 internal fun findAndroidProjectRoot(workspace: File): File? {

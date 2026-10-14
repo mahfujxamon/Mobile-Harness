@@ -38,9 +38,14 @@ class AndroidDevelopmentWorkflowTest {
     }
 
     @Test
-    fun gradleCommandPrefersWrapper() = withTempDirectory { root ->
+    fun gradleCommandPrefersWrapperAndHonorsWorkerConfiguration() = withTempDirectory { root ->
         File(root, "gradlew").writeText("#!/bin/sh")
-        assertTrue(androidGradleCommand(root, "assembleDebug").startsWith("bash ./gradlew"))
+        val defaultCommand = androidGradleCommand(root, "assembleDebug")
+        assertTrue(defaultCommand.startsWith("bash ./gradlew"))
+        assertTrue(defaultCommand.contains("--max-workers=8"))
+        File(root, "gradle.properties").writeText("org.gradle.workers.max=6\n")
+        assertTrue(androidGradleCommand(root, "assembleDebug").contains("--max-workers=6"))
+        File(root, "gradle.properties").delete()
         File(root, "gradlew").delete()
         assertTrue(androidGradleCommand(root, "assembleDebug").startsWith("gradle "))
     }

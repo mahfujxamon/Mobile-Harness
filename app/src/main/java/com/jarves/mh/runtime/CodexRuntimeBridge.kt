@@ -91,8 +91,12 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Do not pass --search: several supported Codex CLI releases reject this flag.
-                // Keep the exec command compatible; web search can be configured separately when supported.
+                // Do not pass --search: supported Codex CLI releases reject this flag.
+                // OpenAI's supported config enables live web search without an unknown CLI argument.
+                if (provider.kind == ProviderKind.OPENAI) {
+                    add("--config")
+                    add("web_search=\"live\"")
+                }
                 // Run unattended while retaining Codex's workspace-write sandbox.
                 // The app's isolated Android PRoot provides an additional outer boundary.
                 add("--full-auto")
