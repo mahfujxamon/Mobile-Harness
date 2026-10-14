@@ -91,8 +91,8 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Enable Codex live web search explicitly; it is off by default.
-                add("--search")
+                // Do not pass --search: several supported Codex CLI releases reject this flag.
+                // Keep the exec command compatible; web search can be configured separately when supported.
                 // Run unattended while retaining Codex's workspace-write sandbox.
                 // The app's isolated Android PRoot provides an additional outer boundary.
                 add("--full-auto")
