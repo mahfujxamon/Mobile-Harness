@@ -4520,7 +4520,7 @@ private fun WorkspaceScreen(
     val chatListState = rememberLazyListState()
     var userScrolledUp by rememberSaveable { mutableStateOf(false) }
 
-    val chatItemCount = state.messages.size +
+    val chatItemCount = state.messages.count { it.fromUser || it.text != CHAT_WELCOME_PLACEHOLDER } +
         (if (state.liveProcess.isNotEmpty() || state.liveThinking) 1 else 0) +
         (if (state.pendingApproval != null) 1 else 0)
 
@@ -6205,6 +6205,8 @@ private fun FilesTab(
     }
 }
 
+private const val CHAT_WELCOME_PLACEHOLDER = CHAT_WELCOME_PLACEHOLDER
+
 private sealed interface FileNameDialog {
     data class Create(val parentPath: String, val isDirectory: Boolean) : FileNameDialog
     data class Rename(val path: String, val currentName: String) : FileNameDialog
@@ -6274,6 +6276,7 @@ private fun ChatTab(
         view.keepScreenOn = isRunning
         onDispose { view.keepScreenOn = false }
     }
+    val visibleMessages = messages.filterNot { !it.fromUser && it.text == CHAT_WELCOME_PLACEHOLDER }
     var prompt by rememberSaveable { mutableStateOf("") }
     val speechInputLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -6332,12 +6335,12 @@ private fun ChatTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (messages.isEmpty() && liveProcess.isEmpty() && !thinkingActive && approval == null) {
+                if (visibleMessages.isEmpty() && liveProcess.isEmpty() && !thinkingActive && approval == null) {
                     item(key = "chat-empty-state") {
                         ChatWelcomePanel(onPromptSelected = { prompt = it })
                     }
                 }
-                items(messages, key = { it.id }) { message ->
+                items(visibleMessages, key = { it.id }) { message ->
                     if (message.workItems.isNotEmpty()) {
                         WorkBlockCard(message)
                     } else {
