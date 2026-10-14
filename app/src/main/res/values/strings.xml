@@ -286,6 +286,9 @@
     <string name="chat_empty_description">Small fixes, new features, or a tricky bug. Start wherever you are.</string>
     <string name="chat_empty_starters">A FEW GOOD STARTING POINTS</string>
     <string name="chat_suggestion_understand">Understand this project</string>
+    <string name="chat_suggestion_understand_desc">Map the structure and main entry points</string>
+    <string name="chat_suggestion_debug_desc">Review likely problems before edits</string>
+    <string name="chat_suggestion_feature_desc">Plan a safe change for this codebase</string>
     <string name="chat_suggestion_debug">Track down a bug</string>
     <string name="chat_suggestion_feature">Plan a feature</string>
     <string name="chat_prompt_understand">Map the project structure, identify the main entry points, and explain how the pieces fit together. Do not edit files yet.</string>

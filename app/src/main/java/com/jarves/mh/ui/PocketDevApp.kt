@@ -6673,24 +6673,24 @@ private fun ChatWelcomePanel(onPromptSelected: (String) -> Unit) {
             letterSpacing = 1.2.sp,
             fontWeight = FontWeight.SemiBold,
         )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip(
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            ChatStarterRow(
+                icon = Icons.Default.Code,
+                title = stringResource(R.string.chat_suggestion_understand),
+                description = stringResource(R.string.chat_suggestion_understand_desc),
                 onClick = { onPromptSelected(understandPrompt) },
-                label = { Text(stringResource(R.string.chat_suggestion_understand)) },
-                leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(17.dp)) },
-                modifier = Modifier.fillMaxWidth(),
             )
-            AssistChip(
+            ChatStarterRow(
+                icon = Icons.Default.BugReport,
+                title = stringResource(R.string.chat_suggestion_debug),
+                description = stringResource(R.string.chat_suggestion_debug_desc),
                 onClick = { onPromptSelected(debugPrompt) },
-                label = { Text(stringResource(R.string.chat_suggestion_debug)) },
-                leadingIcon = { Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(17.dp)) },
-                modifier = Modifier.fillMaxWidth(),
             )
-            AssistChip(
+            ChatStarterRow(
+                icon = Icons.Default.Build,
+                title = stringResource(R.string.chat_suggestion_feature),
+                description = stringResource(R.string.chat_suggestion_feature_desc),
                 onClick = { onPromptSelected(featurePrompt) },
-                label = { Text(stringResource(R.string.chat_suggestion_feature)) },
-                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(17.dp)) },
-                modifier = Modifier.fillMaxWidth(),
             )
         }
         Surface(
@@ -6716,6 +6716,62 @@ private fun ChatWelcomePanel(onPromptSelected: (String) -> Unit) {
                     lineHeight = 18.sp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ChatStarterRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(11.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }
