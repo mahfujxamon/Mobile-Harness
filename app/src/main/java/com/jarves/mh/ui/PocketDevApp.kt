@@ -4744,6 +4744,7 @@ private fun WorkspaceScreen(
                     taskStartedAtMillis = state.workSegmentStartedAtMillis ?: state.taskStartedAtMillis,
                     taskFinishedAtMillis = state.taskFinishedAtMillis,
                     onRetryTask = onRetryTask,
+                    canRetryTask = !state.projectTerminalRunning && !state.androidBuildRunning,
                     thinkingActive = state.liveThinking,
                     agentKind = state.agentKind,
                     pendingAttachments = state.pendingAttachments,
@@ -6271,6 +6272,7 @@ private fun ChatTab(
     readOnlyBlocked: Boolean = false,
     onContinueHere: () -> Unit = {},
     onRetryTask: () -> Unit = {},
+    canRetryTask: Boolean = true,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -6348,7 +6350,7 @@ private fun ChatTab(
                 items(visibleMessages, key = { it.id }) { message ->
                     if (message.workItems.isNotEmpty()) {
                         val retryAction = if (
-                            !isRunning && message.id == latestVisibleMessageId &&
+                            !readOnly && canRetryTask && !isRunning && message.id == latestVisibleMessageId &&
                             message.isRetryableTaskEnd(stringResource(R.string.vm_task_interrupted))
                         ) onRetryTask else null
                         WorkBlockCard(message, onRetry = retryAction)

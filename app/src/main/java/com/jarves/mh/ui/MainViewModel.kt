@@ -5534,7 +5534,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 fromUser = false,
                 text = "",
                 workItems = liveItems.map { it.copy(isComplete = true) } + ActivityItem(
-                    str(R.string.vm_task_interrupted),
+                    "Task interrupted",
                     str(R.string.vm_task_interrupted_detail),
                 ),
                 workedMillis = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L),
