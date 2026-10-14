@@ -91,8 +91,12 @@ class CodexRuntimeBridge(
                 add(CODEX_GUEST_PATH)
                 add("exec")
                 add("--json")
-                // Enable Codex live web search explicitly; it is off by default.
-                add("--search")
+                // Codex CLI versions bundled by the app do not accept a --search flag.
+                // Use the supported config setting for OpenAI's live web search instead.
+                if (provider.kind == ProviderKind.OPENAI) {
+                    add("--config")
+                    add("web_search=\"live\"")
+                }
                 // Run unattended while retaining Codex's workspace-write sandbox.
                 // The app's isolated Android PRoot provides an additional outer boundary.
                 add("--full-auto")
