@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/native-npm-builds-arm64
+      - 'feat/**'
   pull_request:
     branches:
       - main
