@@ -74,6 +74,7 @@ class RuntimeInstaller(private val context: Context) {
     private val devStacksFile = File(rootfs, ".pocket-dev-stacks.json")
     private val dshMarker = File(rootfs, ".pocket-dsh-version")
     private val agyMarker = File(rootfs, ".pocket-agy-version")
+    private val codexMarker = File(rootfs, ".pocket-codex-version")
     private val githubCliMarker = File(rootfs, ".pocket-github-cli-version")
     private val dshAndroidCompatibilityMarker = File(rootfs, ".pocket-dsh-android-compat-version")
     private val macosMetadataRepairMarker = File(rootfs, ".pocket-macos-metadata-repair")
@@ -202,8 +203,11 @@ class RuntimeInstaller(private val context: Context) {
         migrateLegacyClaudeMarker()
         ensureSettingsAndHooks()
 
-        // Node.js and Git are always available in the Core runtime. Python,
-        // C/C++, PHP, and Android remain opt-in stacks during onboarding.
+        // Native npm packages used by common developer tools (including Graft's
+        // Tree-sitter bindings) need a working compiler on Linux ARM64. Install
+        // the C/C++ toolchain with Core so a user does not hit node-gyp errors
+        // merely because they did not know to select an optional developer stack.
+        // Other language and Android stacks remain opt-in.
         val coreNeeded = !File(rootfs, "usr/bin/git").exists() || !isSupportedCoreToolsVersion()
         if (coreNeeded) {
             installNodeIfNeeded(proot, 0.58f, 0.66f, onProgress)
@@ -225,7 +229,8 @@ class RuntimeInstaller(private val context: Context) {
             coreToolsMarker.writeText(CORE_TOOLS_VERSION)
         }
 
-        val missingStacks = selectedStacks.filterNot(::isStackInstalled)
+        val requiredStacks = selectedStacks + DevStack.CPP
+        val missingStacks = requiredStacks.filterNot(::isStackInstalled)
         missingStacks.forEachIndexed { index, stack ->
             val slice = 0.26f / maxOf(1, missingStacks.size)
             val from = 0.72f + index * slice
@@ -236,6 +241,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(proot, 0.985f, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(proot, 0.985f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(proot, 0.985f, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> ensureCodexInstalled(proot, 0.95f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_setup_complete), 1f))
         return InstalledRuntime(proot, rootfs)
@@ -255,6 +261,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> ensureClaudeInstalled(runtime.proot, 0.05f, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> ensureDshInstalled(runtime.proot, 0.05f, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> ensureAgyInstalled(runtime.proot, 0.05f, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> ensureCodexInstalled(runtime.proot, 0.05f, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_ready, agent.localizedTitle(context)), 1f))
     }
@@ -274,6 +281,9 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> isInstalled() &&
                 File(rootfs, AGY_GUEST_PATH.removePrefix("/")).canExecute() &&
                 !agyMarker.readTextOrNull().isNullOrBlank()
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> isInstalled() &&
+                File(rootfs, CODEX_GUEST_PATH.removePrefix("/")).canExecute() &&
+                !codexMarker.readTextOrNull().isNullOrBlank()
         }
     }
 
@@ -362,6 +372,11 @@ class RuntimeInstaller(private val context: Context) {
             ?.trim()
             ?.takeIf { it.isNotEmpty() && File(rootfs, AGY_GUEST_PATH.removePrefix("/")).canExecute() }
             ?.let { put(com.jarves.mh.model.AgentKind.ANTIGRAVITY, it) }
+
+        codexMarker.readTextOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI) }
+            ?.let { put(com.jarves.mh.model.AgentKind.CODEX_CLI, it) }
     }
 
     /** Checks each installed agent against its own authoritative release source. */
@@ -389,6 +404,12 @@ class RuntimeInstaller(private val context: Context) {
                         put(com.jarves.mh.model.AgentKind.ANTIGRAVITY, AgentUpdateInfo(current, latest))
                     }
             }
+            installed[com.jarves.mh.model.AgentKind.CODEX_CLI]?.let { current ->
+                runCatching { JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version") }
+                    .getOrNull()?.takeIf { isVersionNewer(it, current) }?.let { latest ->
+                        put(com.jarves.mh.model.AgentKind.CODEX_CLI, AgentUpdateInfo(current, latest))
+                    }
+            }
         }
     }
 
@@ -402,6 +423,7 @@ class RuntimeInstaller(private val context: Context) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> updateClaude(runtime, expectedVersion, onProgress)
             com.jarves.mh.model.AgentKind.DEEPSEEK_HARNESS -> updateDsh(runtime, expectedVersion, onProgress)
             com.jarves.mh.model.AgentKind.ANTIGRAVITY -> updateAgy(runtime, expectedVersion, onProgress)
+            com.jarves.mh.model.AgentKind.CODEX_CLI -> updateCodex(runtime.proot, expectedVersion, onProgress)
         }
         onProgress(RuntimeInstallProgress(str(R.string.rt_install_version_ready, agent.localizedTitle(context), expectedVersion), 1f, event = RuntimeInstallEvent.COMPLETED))
     }
@@ -562,6 +584,49 @@ class RuntimeInstaller(private val context: Context) {
         CORE_TOOLS_VERSION,
         LEGACY_CORE_TOOLS_VERSION,
     )
+
+    private suspend fun ensureCodexInstalled(
+        proot: File,
+        fraction: Float,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        if (isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI)) return
+        val version = JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version")
+        installCodexVersion(proot, version, fraction, onProgress)
+    }
+
+    private suspend fun updateCodex(
+        proot: File,
+        expectedVersion: String,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        val latest = JSONObject(fetchText("https://registry.npmjs.org/@openai%2Fcodex/latest")).getString("version")
+        check(latest == expectedVersion) { str(R.string.rt_install_newer_release, "Codex CLI") }
+        installCodexVersion(proot, expectedVersion, 0.05f, onProgress)
+    }
+
+    private suspend fun installCodexVersion(
+        proot: File,
+        version: String,
+        fraction: Float,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(version.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?"))) {
+            "Invalid Codex CLI version returned by npm registry"
+        }
+        runGuestCommand(
+            proot = proot,
+            command = "npm install --global --no-audit --no-fund @openai/codex@$version",
+            displayCommand = "npm install -g @openai/codex@$version",
+            fraction = fraction,
+            timeoutMs = 10 * 60_000L,
+            onProgress = onProgress,
+            failureMessage = "Codex CLI installation failed",
+        )
+        verifyGuest(proot, "$CODEX_GUEST_PATH --version", str(R.string.rt_install_verify_failed, "Codex CLI"))
+        codexMarker.writeText(version)
+        check(isAgentInstalled(com.jarves.mh.model.AgentKind.CODEX_CLI)) { "Codex CLI installation is incomplete" }
+    }
 
     private suspend fun ensureClaudeInstalled(
         proot: File,
@@ -732,7 +797,7 @@ class RuntimeInstaller(private val context: Context) {
             DevStack.ANDROID -> removeAndroidStack()
             DevStack.CPP -> aptRemove(
                 runtime.proot,
-                listOf("build-essential", "gcc", "g++", "make", "cmake", "gdb"),
+                listOf("build-essential", "gcc", "g++", "gcc-10", "g++-10", "make", "cmake", "gdb"),
                 0.45f,
                 onProgress,
             )
@@ -846,7 +911,7 @@ class RuntimeInstaller(private val context: Context) {
             DevStack.CPP -> {
                 aptInstall(
                     proot,
-                    listOf("build-essential", "cmake", "gdb"),
+                    listOf("build-essential", "gcc-10", "g++-10", "python3", "make", "cmake", "gdb"),
                     str(R.string.rt_install_cpp),
                     from,
                     onProgress,
@@ -1118,7 +1183,7 @@ class RuntimeInstaller(private val context: Context) {
             gradle.beforeProject { project ->
                 project.extensions.extraProperties.set(
                     'android.aapt2FromMavenOverride',
-                    '/root/android-sdk/build-tools/35.0.0/aapt2'
+                    System.getenv('POCKETDEV_AAPT2_OVERRIDE') ?: '$ANDROID_AAPT2_GUEST_PATH'
                 )
                 project.buildscript.repositories {
                     maven { url = pocketMaven }
@@ -1170,6 +1235,611 @@ class RuntimeInstaller(private val context: Context) {
         writeDevStackState(state)
     }
 
+
+    /** Returns the versions actually installed in the ARM64 runtime. */
+    fun toolchainInventory(): ToolchainInventory {
+        val binDir = File(rootfs, "usr/bin")
+        val gccVersions = binDir.listFiles().orEmpty()
+            .mapNotNull { Regex("""^gcc-(\d+)$""").matchEntire(it.name)?.groupValues?.get(1) }
+            .filter { File(binDir, "gcc-$it").canExecute() && File(binDir, "g++-$it").canExecute() }
+            .distinct().sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
+        val selectedGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+            ?.takeIf { it in gccVersions }
+            ?: if ("10" in gccVersions) "10" else gccVersions.lastOrNull() ?: "10"
+
+        val sdk = File(rootfs, "root/android-sdk")
+        val sdkPlatforms = File(sdk, "platforms").listFiles().orEmpty()
+            .mapNotNull { Regex("""^android-(\d+)$""").matchEntire(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            .filter { File(sdk, "platforms/android-$it/android.jar").isFile }
+            .distinct().sorted()
+        val requestedApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+        val selectedApi = requestedApi?.takeIf { it in sdkPlatforms }
+            ?: 36.takeIf { 36 in sdkPlatforms } ?: sdkPlatforms.lastOrNull()
+
+        val buildToolsVersions = File(sdk, "build-tools").listFiles().orEmpty()
+            .filter(::isValidAndroidBuildTools)
+            .map { it.name }
+            .sortedWith(versionComparator())
+        val requestedBuildTools = File(rootfs, "root/.pocket-default-build-tools-version").readTextOrNull()
+        val selectedBuildTools = requestedBuildTools?.takeIf { it in buildToolsVersions }
+            ?: "35.0.0".takeIf { it in buildToolsVersions }
+            ?: buildToolsVersions.lastOrNull()
+
+        val sdkCmakeVersions = File(sdk, "cmake").listFiles().orEmpty()
+            .filter { dir ->
+                val executable = File(dir, "bin/cmake")
+                executable.isFile && executable.canExecute() && isAarch64Elf(executable)
+            }.map { it.name }
+        // Ubuntu's apt CMake remains a usable fallback but is managed by apt, not the versioned archive UI.
+        val systemCmake = File(rootfs, "usr/bin/cmake")
+            .takeIf { it.isFile && it.canExecute() && isAarch64Elf(it) }
+        val cmakeVersions = (sdkCmakeVersions + listOfNotNull("system".takeIf { systemCmake != null }))
+            .distinct().sortedWith(versionComparator())
+        val selectedCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+            ?.takeIf { it in cmakeVersions }
+            ?: "system".takeIf { it in cmakeVersions }
+        val ndkVersions = File(sdk, "ndk").listFiles().orEmpty()
+            .filter(::isValidNativeNdk).map { it.name }.sortedWith(versionComparator())
+        val selectedNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
+            ?.takeIf { it in ndkVersions }
+
+        return ToolchainInventory(
+            installedGccVersions = gccVersions,
+            selectedGccVersion = selectedGcc,
+            installedSdkPlatforms = sdkPlatforms,
+            selectedSdkApi = selectedApi,
+            installedBuildToolsVersions = buildToolsVersions,
+            selectedBuildToolsVersion = selectedBuildTools,
+            installedCmakeVersions = cmakeVersions,
+            selectedCmakeVersion = selectedCmake,
+            installedNdkVersions = ndkVersions,
+            selectedNdkVersion = selectedNdk,
+            runtimeAvailable = File(rootfs, "usr/bin/bash").isFile,
+        )
+    }
+
+
+    /** True when this project has a saved version override profile in app-private storage. */
+    fun hasProjectToolchainProfile(projectId: String): Boolean =
+        runCatching { projectToolchainProfileFile(projectId).isFile }.getOrDefault(false)
+
+    /**
+     * Saves the current global selections as overrides for one Mobile Harness project.
+     * The profile stays outside the repository, so it cannot accidentally be committed.
+     */
+    fun loadProjectToolchainProfile(projectId: String): ToolchainProjectProfile? = runCatching {
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (!profileFile.isFile) return@runCatching null
+        val profile = JSONObject(profileFile.readText())
+        if (profile.optInt("schemaVersion", 0) != 1) return@runCatching null
+        val inventory = toolchainInventory()
+        ToolchainProjectProfile(
+            gccVersion = profile.optString("gcc").takeIf { it in inventory.installedGccVersions },
+            sdkApi = profile.optInt("sdkApi", -1).takeIf { it in inventory.installedSdkPlatforms },
+            buildToolsVersion = profile.optString("buildTools").takeIf { it in inventory.installedBuildToolsVersions },
+            cmakeVersion = profile.optString("cmake").takeIf { it in inventory.installedCmakeVersions },
+            ndkVersion = profile.optString("ndk").takeIf { it in inventory.installedNdkVersions },
+        )
+    }.getOrNull()
+
+    fun saveProjectToolchainProfile(projectId: String, selections: ToolchainProjectProfile) {
+        val profileFile = projectToolchainProfileFile(projectId)
+        val workspaceRoot = File(context.filesDir, "workspaces").canonicalFile
+        val projectRoot = File(workspaceRoot, projectId).canonicalFile
+        require(projectRoot.parentFile == workspaceRoot && projectRoot.isDirectory) {
+            "The selected project workspace is unavailable; open the project again and retry."
+        }
+        val inventory = toolchainInventory()
+        require(inventory.runtimeAvailable) { "Install the Linux runtime before saving a toolchain profile." }
+        require(
+            selections.gccVersion == null || selections.gccVersion in inventory.installedGccVersions,
+        ) { "Selected project GCC/G++ version is not installed." }
+        require(
+            selections.sdkApi == null || selections.sdkApi in inventory.installedSdkPlatforms,
+        ) { "Selected project Android SDK API is not installed." }
+        require(
+            selections.buildToolsVersion == null || selections.buildToolsVersion in inventory.installedBuildToolsVersions,
+        ) { "Selected project Android Build Tools version is not installed as a compatible ARM64 package." }
+        require(
+            selections.cmakeVersion == null || selections.cmakeVersion in inventory.installedCmakeVersions,
+        ) { "Selected project CMake version is not installed as a compatible ARM64 toolchain." }
+        require(
+            selections.ndkVersion == null || selections.ndkVersion in inventory.installedNdkVersions,
+        ) { "Selected project NDK is not installed as a compatible ARM64 toolchain." }
+        require(
+            selections.gccVersion != null || selections.sdkApi != null || selections.buildToolsVersion != null ||
+                selections.cmakeVersion != null || selections.ndkVersion != null,
+        ) { "Choose at least one project override, or clear the profile to use global defaults." }
+
+        val profile = JSONObject().put("schemaVersion", 1)
+        selections.gccVersion?.let { profile.put("gcc", it) }
+        selections.sdkApi?.let { profile.put("sdkApi", it) }
+        selections.buildToolsVersion?.let { profile.put("buildTools", it) }
+        selections.cmakeVersion?.let { profile.put("cmake", it) }
+        selections.ndkVersion?.let { profile.put("ndk", it) }
+        profileFile.parentFile?.mkdirs()
+        val temporary = File(profileFile.parentFile, profileFile.name + ".tmp")
+        temporary.writeText(profile.toString(2))
+        if (profileFile.exists()) check(profileFile.delete()) { "Could not replace project toolchain profile." }
+        check(temporary.renameTo(profileFile)) { "Could not save project toolchain profile." }
+    }
+
+    /** Removes only the saved project override; global selections remain unchanged. */
+    fun clearProjectToolchainProfile(projectId: String) {
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (profileFile.exists()) check(profileFile.delete()) { "Could not remove project toolchain profile." }
+    }
+
+
+    private fun isToolchainVersionUsedByProjectProfiles(key: String, version: String): Boolean {
+        val directory = File(context.filesDir, "toolchain-profiles")
+        return directory.listFiles().orEmpty().any { file ->
+            file.isFile && file.extension == "json" && runCatching {
+                JSONObject(file.readText()).optString(key) == version
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun isSdkApiUsedByProjectProfiles(api: Int): Boolean {
+        val directory = File(context.filesDir, "toolchain-profiles")
+        return directory.listFiles().orEmpty().any { file ->
+            file.isFile && file.extension == "json" && runCatching {
+                JSONObject(file.readText()).optInt("sdkApi", -1) == api
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun projectToolchainProfileFile(projectId: String): File {
+        require(Regex("""^[A-Za-z0-9_-]{1,128}$""").matches(projectId)) { "Invalid project identifier." }
+        return File(context.filesDir, "toolchain-profiles/$projectId.json")
+    }
+
+    private fun readProjectToolchainProfile(workspace: File): JSONObject? = runCatching {
+        val workspaceRoot = File(context.filesDir, "workspaces").canonicalFile.toPath()
+        val path = workspace.canonicalFile.toPath()
+        if (!path.startsWith(workspaceRoot)) return@runCatching null
+        val relative = workspaceRoot.relativize(path)
+        if (relative.nameCount < 1) return@runCatching null
+        val projectId = relative.getName(0).toString()
+        val profileFile = projectToolchainProfileFile(projectId)
+        if (!profileFile.isFile) return@runCatching null
+        val profile = JSONObject(profileFile.readText())
+        if (profile.optInt("schemaVersion", 0) != 1) return@runCatching null
+        profile
+    }.getOrNull()
+
+    suspend fun installCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in SUPPORTED_GCC_VERSIONS) {
+            "This Ubuntu 20.04 ARM64 runtime currently manages GCC versions " +
+                SUPPORTED_GCC_VERSIONS.joinToString() + " from its configured repositories."
+        }
+        val proot = installedRuntime().proot
+        aptInstall(proot, listOf("gcc-$version", "g++-$version"), "Installing GCC/G++ $version side-by-side", 0.15f, onProgress)
+        verifyGuest(proot, "gcc-$version --version && g++-$version --version", str(R.string.rt_install_verify_failed, "GCC/G++ $version"))
+    }
+
+    fun selectCompilerVersion(version: String) {
+        require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
+        File(rootfs, "root/.pocket-default-gcc-version").writeText(version)
+    }
+
+    suspend fun removeCompilerVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedGccVersions) { "GCC/G++ $version is not installed" }
+        require(version != "10") { "GCC/G++ 10 is retained for Node 24 native-addon builds and Graft compatibility." }
+        require(!isToolchainVersionUsedByProjectProfiles("gcc", version)) {
+            "Project toolchain profile(s) still require GCC/G++ $version. Clear or update those profiles first."
+        }
+        require(toolchainInventory().selectedGccVersion != version) {
+            "Select another GCC/G++ version before removing $version."
+        }
+        aptRemove(installedRuntime().proot, listOf("gcc-$version", "g++-$version"), 0.2f, onProgress)
+    }
+
+
+    suspend fun installBuildToolsVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid Android Build Tools version: $version" }
+        require(version !in toolchainInventory().installedBuildToolsVersions) { "Android Build Tools $version is already installed." }
+        val runtime = installedRuntime()
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) {
+            "Android sdkmanager is unavailable. Reinstall the Android toolchain first."
+        }
+        runGuestCommand(
+            proot = runtime.proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --install 'build-tools;$version'",
+            displayCommand = "sdkmanager --install build-tools;$version",
+            fraction = 0.15f,
+            timeoutMs = 45 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not install Android Build Tools $version",
+        )
+        if (version !in toolchainInventory().installedBuildToolsVersions) {
+            // Upstream Linux Build Tools are often x86-64 binaries. Don't leave an
+            // unusable package installed on the ARM64 runtime after an architecture mismatch.
+            runCatching {
+                runGuestCommand(
+                    proot = runtime.proot,
+                    command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'build-tools;$version'",
+                    displayCommand = "sdkmanager --uninstall build-tools;$version (unsupported host binaries)",
+                    fraction = 0.9f,
+                    timeoutMs = 20 * 60 * 1_000L,
+                    onProgress = onProgress,
+                    failureMessage = "Could not roll back incompatible Build Tools $version",
+                )
+            }
+            error("Android Build Tools $version did not provide a verified native Linux/AArch64 aapt2. The package may contain x86-64 host tools.")
+        }
+        val selected = File(rootfs, "root/.pocket-default-build-tools-version")
+        if (selected.readTextOrNull().isNullOrBlank()) selected.writeText(version)
+    }
+
+    fun selectBuildToolsVersion(version: String) {
+        require(version in toolchainInventory().installedBuildToolsVersions) {
+            "Android Build Tools $version is not installed as a compatible ARM64 package."
+        }
+        File(rootfs, "root/.pocket-default-build-tools-version").writeText(version)
+    }
+
+    suspend fun removeBuildToolsVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version != "35.0.0") {
+            "Build Tools 35.0.0 is retained as the Android runtime's verified baseline and Gradle AAPT2 fallback."
+        }
+        require(version in toolchainInventory().installedBuildToolsVersions) { "Android Build Tools $version is not installed." }
+        require(!isToolchainVersionUsedByProjectProfiles("buildTools", version)) {
+            "A project toolchain profile still requires Build Tools $version. Clear or update that profile first."
+        }
+        require(toolchainInventory().selectedBuildToolsVersion != version) {
+            "Select another Build Tools version before removing $version."
+        }
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable." }
+        runGuestCommand(
+            proot = installedRuntime().proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'build-tools;$version'",
+            displayCommand = "sdkmanager --uninstall build-tools;$version",
+            fraction = 0.2f,
+            timeoutMs = 30 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not remove Android Build Tools $version",
+        )
+    }
+
+    suspend fun installSdkPlatform(api: Int, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(api in 21..100) { "Android API level must be between 21 and 100." }
+        val runtime = installedRuntime()
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable. Reinstall the Android toolchain first." }
+        runGuestCommand(
+            proot = runtime.proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --install 'platforms;android-$api'",
+            displayCommand = "sdkmanager --install platforms;android-$api",
+            fraction = 0.15f,
+            timeoutMs = 45 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not install Android SDK platform API $api",
+        )
+        verifyGuest(runtime.proot, "test -f /root/android-sdk/platforms/android-$api/android.jar", "SDK platform API $api did not install completely")
+        if (File(rootfs, "root/.pocket-default-android-api").readTextOrNull().isNullOrBlank()) {
+            File(rootfs, "root/.pocket-default-android-api").writeText(api.toString())
+        }
+    }
+
+    fun selectSdkPlatform(api: Int) {
+        require(api in toolchainInventory().installedSdkPlatforms) { "Android SDK platform API $api is not installed" }
+        File(rootfs, "root/.pocket-default-android-api").writeText(api.toString())
+    }
+
+    suspend fun removeSdkPlatform(api: Int, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(api in toolchainInventory().installedSdkPlatforms) { "Android SDK platform API $api is not installed" }
+        val selected = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+            ?: toolchainInventory().selectedSdkApi
+        require(selected != api) { "Choose another Android SDK API before removing API $api." }
+        require(!isSdkApiUsedByProjectProfiles(api)) {
+            "A project toolchain profile still requires Android SDK API $api. Clear or update that profile first."
+        }
+        val sdkManager = File(rootfs, "root/android-sdk/cmdline-tools/latest/bin/sdkmanager")
+        check(sdkManager.isFile && sdkManager.canExecute()) { "Android sdkmanager is unavailable." }
+        runGuestCommand(
+            proot = installedRuntime().proot,
+            command = "yes | /root/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/android-sdk --uninstall 'platforms;android-$api'",
+            displayCommand = "sdkmanager --uninstall platforms;android-$api",
+            fraction = 0.2f,
+            timeoutMs = 30 * 60 * 1_000L,
+            onProgress = onProgress,
+            failureMessage = "Could not remove Android SDK platform API $api",
+        )
+    }
+
+
+    /**
+     * Installs a Linux/AArch64 CMake archive side-by-side. The default source is
+     * Kitware's release archive and published SHA-256; custom archives need a checksum.
+     */
+    suspend fun installCmakeVersion(
+        version: String,
+        customUrl: String = "",
+        customSha256: String = "",
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid CMake version: $version" }
+        val filename = "cmake-$version-linux-aarch64.tar.gz"
+        val url = customUrl.trim().ifEmpty { "https://github.com/Kitware/CMake/releases/download/v$version/$filename" }
+        require(url.startsWith("https://", ignoreCase = true)) { "Toolchain downloads must use HTTPS." }
+        val checksum = when {
+            customUrl.isNotBlank() -> validateSha256(customSha256)
+            customSha256.isNotBlank() -> validateSha256(customSha256)
+            else -> {
+                val text = fetchText("https://github.com/Kitware/CMake/releases/download/v$version/cmake-$version-SHA-256.txt")
+                text.lineSequence().firstOrNull { it.contains(filename) }
+                    ?.let { line -> Regex("""[a-fA-F0-9]{64}""").find(line)?.value }
+                    ?: error("Kitware has no Linux AArch64 archive/checksum for CMake $version. Supply a custom ARM64 archive and SHA-256.")
+            }
+        }
+        val runtime = installedRuntime()
+        val destination = File(rootfs, "root/android-sdk/cmake/$version")
+        require(!destination.exists()) { "CMake $version is already installed." }
+        val archive = File(downloads, "cmake-$version-linux-aarch64.tar.gz")
+        onProgress(RuntimeInstallProgress("Downloading CMake $version (Linux ARM64)", 0.05f, indeterminate = true))
+        downloadVerified(url, archive, checksum) { downloaded, total ->
+            val ratio = if (total > 0L) downloaded.toFloat() / total else 0f
+            onProgress(RuntimeInstallProgress(
+                message = "Downloading CMake $version",
+                fraction = 0.05f + ratio * 0.55f,
+                downloadedBytes = downloaded,
+                totalBytes = total.takeIf { it > 0L },
+                event = RuntimeInstallEvent.DOWNLOAD,
+            ))
+        }
+        val staging = File(runtimeDir, "cmake-$version.installing")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        var activated = false
+        try {
+            extractVersionedArchive(archive, staging)
+            val candidate = staging.walkTopDown().firstOrNull { it.isDirectory && File(it, "bin/cmake").isFile }
+                ?: error("Archive does not contain a CMake bin/cmake executable.")
+            check(isAarch64Elf(File(candidate, "bin/cmake"))) {
+                "CMake archive is not a Linux AArch64 build. x86_64 CMake cannot run in this ARM64 runtime."
+            }
+            destination.parentFile?.mkdirs()
+            check(candidate.renameTo(destination)) { "Could not activate CMake $version" }
+            activated = true
+            staging.deleteRecursively()
+            verifyGuest(runtime.proot, "'/root/android-sdk/cmake/$version/bin/cmake' --version", "CMake $version failed post-install verification")
+            val defaultFile = File(rootfs, "root/.pocket-default-cmake-version")
+            if (defaultFile.readTextOrNull().isNullOrBlank()) defaultFile.writeText(version)
+            archive.delete()
+            onProgress(RuntimeInstallProgress("CMake $version installed and verified", 1f, event = RuntimeInstallEvent.COMPLETED))
+        } catch (error: Throwable) {
+            staging.deleteRecursively()
+            if (activated) destination.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun selectCmakeVersion(version: String) {
+        require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed as an ARM64 toolchain" }
+        File(rootfs, "root/.pocket-default-cmake-version").writeText(version)
+    }
+
+    suspend fun removeCmakeVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version != "system") { "The Ubuntu apt-managed CMake fallback cannot be removed by the versioned archive manager." }
+        require(!isToolchainVersionUsedByProjectProfiles("cmake", version)) {
+            "A project toolchain profile still requires CMake $version. Clear or update that profile first."
+        }
+        require(version in toolchainInventory().installedCmakeVersions) { "CMake $version is not installed" }
+        require(File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull() != version) {
+            "Select another CMake version before removing $version."
+        }
+        onProgress(RuntimeInstallProgress("Removing CMake $version", 0.2f, indeterminate = true))
+        removePath(File(rootfs, "root/android-sdk/cmake/$version"))
+        onProgress(RuntimeInstallProgress("CMake $version removed", 1f, event = RuntimeInstallEvent.COMPLETED))
+    }
+
+    /** Installs a custom Linux/AArch64 NDK only after checking checksum, version and ELF machine type. */
+    suspend fun installNdkArchive(
+        version: String,
+        url: String,
+        sha256: String,
+        onProgress: suspend (RuntimeInstallProgress) -> Unit,
+    ) {
+        require(TOOL_VERSION_PATTERN.matches(version)) { "Invalid NDK version: $version" }
+        require(url.startsWith("https://", ignoreCase = true)) { "NDK downloads must use HTTPS." }
+        val checksum = validateSha256(sha256)
+        val archivePath = runCatching { java.net.URI(url).path.lowercase() }.getOrDefault(url.substringBefore('?').lowercase())
+        val isZip = archivePath.endsWith(".zip")
+        require(isZip || archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz")) {
+            "NDK archive must be .zip, .tar.gz, or .tgz."
+        }
+        val runtime = installedRuntime()
+        val destination = File(rootfs, "root/android-sdk/ndk/$version")
+        require(!destination.exists()) { "NDK $version is already installed." }
+        val archiveName = if (isZip) "ndk-$version.zip" else "ndk-$version.tar.gz"
+        val archive = File(downloads, archiveName)
+        onProgress(RuntimeInstallProgress("Downloading NDK $version (Linux ARM64)", 0.05f, indeterminate = true))
+        downloadVerified(url, archive, checksum) { downloaded, total ->
+            val ratio = if (total > 0L) downloaded.toFloat() / total else 0f
+            onProgress(RuntimeInstallProgress(
+                message = "Downloading NDK $version",
+                fraction = 0.05f + ratio * 0.55f,
+                downloadedBytes = downloaded,
+                totalBytes = total.takeIf { it > 0L },
+                event = RuntimeInstallEvent.DOWNLOAD,
+            ))
+        }
+        val staging = File(runtimeDir, "ndk-$version.installing")
+        staging.deleteRecursively()
+        staging.mkdirs()
+        var activated = false
+        try {
+            extractVersionedArchive(archive, staging)
+            val candidate = staging.walkTopDown().firstOrNull { isNdkLayout(it) }
+                ?: error("Archive is not a complete Android NDK with a Linux ARM64 LLVM toolchain.")
+            val properties = File(candidate, "source.properties")
+            val declaredVersion = Regex("""(?m)^Pkg\.Revision\s*=\s*(\S+)""").find(properties.readText())?.groupValues?.get(1)
+            require(declaredVersion == version) { "NDK archive reports version '$declaredVersion', not '$version'." }
+            val clang = File(candidate, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang")
+            check(clang.canExecute() && isAarch64Elf(clang)) {
+                "This NDK is not built for a Linux AArch64 host. Google's standard Linux NDK archives are x86_64 and are incompatible."
+            }
+            check(File(candidate, "toolchains/llvm/prebuilt/linux-aarch64/sysroot/usr/include").isDirectory) {
+                "NDK $version does not contain a usable Android sysroot."
+            }
+            destination.parentFile?.mkdirs()
+            check(candidate.renameTo(destination)) { "Could not activate NDK $version" }
+            activated = true
+            staging.deleteRecursively()
+            verifyGuest(runtime.proot, "'/root/android-sdk/ndk/$version/toolchains/llvm/prebuilt/linux-aarch64/bin/clang' --version", "NDK $version failed post-install verification")
+            val defaultFile = File(rootfs, "root/.pocket-default-ndk-version")
+            if (defaultFile.readTextOrNull().isNullOrBlank()) defaultFile.writeText(version)
+            archive.delete()
+            onProgress(RuntimeInstallProgress("NDK $version installed and verified", 1f, event = RuntimeInstallEvent.COMPLETED))
+        } catch (error: Throwable) {
+            staging.deleteRecursively()
+            if (activated) destination.deleteRecursively()
+            throw error
+        }
+    }
+
+    fun selectNdkVersion(version: String) {
+        require(version in toolchainInventory().installedNdkVersions) { "NDK $version is not installed as a native ARM64 toolchain" }
+        File(rootfs, "root/.pocket-default-ndk-version").writeText(version)
+    }
+
+    suspend fun removeNdkVersion(version: String, onProgress: suspend (RuntimeInstallProgress) -> Unit) {
+        require(version in toolchainInventory().installedNdkVersions) { "NDK $version is not installed" }
+        require(!isToolchainVersionUsedByProjectProfiles("ndk", version)) {
+            "A project toolchain profile still requires NDK $version. Clear or update that profile first."
+        }
+        require(File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull() != version) {
+            "Select another NDK version before removing $version."
+        }
+        onProgress(RuntimeInstallProgress("Removing NDK $version", 0.2f, indeterminate = true))
+        removePath(File(rootfs, "root/android-sdk/ndk/$version"))
+        onProgress(RuntimeInstallProgress("NDK $version removed", 1f, event = RuntimeInstallEvent.COMPLETED))
+    }
+
+
+    /** Upstream packages are accepted only if the native tools can execute on this ARM64 host. */
+    private fun isValidAndroidBuildTools(directory: File): Boolean = runCatching {
+        if (!directory.isDirectory || !TOOL_VERSION_PATTERN.matches(directory.name)) return@runCatching false
+        val aapt2 = File(directory, "aapt2")
+        aapt2.isFile && aapt2.canExecute() && isAarch64Elf(aapt2)
+    }.getOrDefault(false)
+
+    private fun validateSha256(value: String): String {
+        val normalized = value.trim().lowercase()
+        require(Regex("""^[a-f0-9]{64}$""").matches(normalized)) {
+            "Enter the archive's 64-character SHA-256 checksum."
+        }
+        return normalized
+    }
+
+    private fun isAarch64Elf(file: File): Boolean = runCatching {
+        if (!file.isFile) return@runCatching false
+        val header = ByteArray(20)
+        file.inputStream().use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val count = input.read(header, offset, header.size - offset)
+                if (count < 0) return@runCatching false
+                offset += count
+            }
+        }
+        header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
+            header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
+            header[4] == 2.toByte() && header[5] == 1.toByte() &&
+            (header[18].toInt() and 0xff) == 183
+    }.getOrDefault(false)
+
+    private fun isNdkLayout(directory: File): Boolean =
+        directory.isDirectory &&
+            File(directory, "source.properties").isFile &&
+            File(directory, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang").isFile
+
+    private fun isValidNativeNdk(directory: File): Boolean = runCatching {
+        isNdkLayout(directory) &&
+            File(directory, "toolchains/llvm/prebuilt/linux-aarch64/bin/clang").let { it.canExecute() && isAarch64Elf(it) }
+    }.getOrDefault(false)
+
+    private fun versionComparator(): Comparator<String> = Comparator { left, right ->
+        if (left == "system") return@Comparator 1
+        if (right == "system") return@Comparator -1
+        val a = left.split(Regex("""[.\-+]""")).map { it.toIntOrNull() ?: 0 }
+        val b = right.split(Regex("""[.\-+]""")).map { it.toIntOrNull() ?: 0 }
+        for (index in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrElse(index) { 0 }
+            val y = b.getOrElse(index) { 0 }
+            if (x != y) return@Comparator x.compareTo(y)
+        }
+        left.compareTo(right)
+    }
+
+    /** Safe tar.gz/zip extraction; refuses path traversal and absolute symbolic links. */
+    private fun extractVersionedArchive(archive: File, destination: File) {
+        destination.mkdirs()
+        if (archive.name.lowercase().endsWith(".zip")) {
+            ZipInputStream(BufferedInputStream(archive.inputStream())).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    val relative = entry.name.removePrefix("./")
+                    if (relative.isNotBlank()) {
+                        val target = safeChild(destination, relative)
+                        if (entry.isDirectory) target.mkdirs() else {
+                            target.parentFile?.mkdirs()
+                            FileOutputStream(target).use { output -> zip.copyTo(output) }
+                            if (relative.split('/').any { it == "bin" }) runCatching { Os.chmod(target.absolutePath, 0b111101101) }
+                        }
+                    }
+                    zip.closeEntry()
+                    entry = zip.nextEntry
+                }
+            }
+            return
+        }
+        val rootPath = destination.canonicalFile.toPath().normalize()
+        val deferredLinks = mutableListOf<Pair<File, File>>()
+        TarArchiveInputStream(GzipCompressorInputStream(BufferedInputStream(archive.inputStream()))).use { tar ->
+            var entry: TarArchiveEntry? = tar.nextEntry
+            while (entry != null) {
+                val relative = entry.name.removePrefix("./")
+                if (relative.isNotBlank()) {
+                    val target = safeChild(destination, relative)
+                    when {
+                        entry.isDirectory -> target.mkdirs()
+                        entry.isSymbolicLink -> {
+                            val linkPath = java.nio.file.Paths.get(entry.linkName)
+                            require(!linkPath.isAbsolute) { "Archive contains an absolute symlink: $relative" }
+                            val resolved = target.toPath().parent.resolve(linkPath).normalize()
+                            require(resolved.startsWith(rootPath)) { "Archive symlink escapes installation directory: $relative" }
+                            target.parentFile?.mkdirs()
+                            if (target.exists() || java.nio.file.Files.isSymbolicLink(target.toPath())) target.delete()
+                            Os.symlink(entry.linkName, target.absolutePath)
+                        }
+                        entry.isLink -> {
+                            val linkTarget = safeChild(destination, entry.linkName.removePrefix("./"))
+                            target.parentFile?.mkdirs()
+                            if (linkTarget.isFile) linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+                            else deferredLinks += target to linkTarget
+                        }
+                        entry.isFile -> {
+                            target.parentFile?.mkdirs()
+                            FileOutputStream(target).use { output -> tar.copyTo(output) }
+                            runCatching { Os.chmod(target.absolutePath, entry.mode and 0b111111111) }
+                        }
+                    }
+                }
+                entry = tar.nextEntry
+            }
+        }
+        deferredLinks.forEach { (target, linkTarget) ->
+            require(linkTarget.isFile) { "Archive hard-link target is missing" }
+            target.parentFile?.mkdirs()
+            linkTarget.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+            runCatching { Os.chmod(target.absolutePath, Os.stat(linkTarget.absolutePath).st_mode) }
+        }
+    }
+
     fun installedStacks(): Set<DevStack> = readDevStackState()
         .filterValues { it }
         .keys
@@ -1179,13 +1849,20 @@ class RuntimeInstaller(private val context: Context) {
 
     fun isStackInstalled(stack: DevStack): Boolean {
         if (readDevStackState()[stack.name] != true) return false
-        if (stack != DevStack.ANDROID) return true
-        return File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION &&
-            File(rootfs, "root/android-sdk/platforms/android-36/android.jar").isFile &&
-            File(rootfs, "root/android-sdk/build-tools/35.0.0/aapt2").isFile &&
-            File(rootfs, "opt/gradle/gradle-8.14.3/bin/gradle").isFile &&
-            File(rootfs, "root/maven/localMvnRepository").let { it.isDirectory && !it.list().isNullOrEmpty() } &&
-            File(rootfs, "root/.gradle/init.d/pocketdev-android.gradle").isFile
+        return when (stack) {
+            DevStack.CPP ->
+                File(rootfs, "usr/bin/gcc-10").canExecute() &&
+                    File(rootfs, "usr/bin/g++-10").canExecute() &&
+                    File(rootfs, "usr/bin/python3").canExecute()
+            DevStack.ANDROID ->
+                File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION &&
+                    File(rootfs, "root/android-sdk/platforms/android-36/android.jar").isFile &&
+                    File(rootfs, "root/android-sdk/build-tools/35.0.0/aapt2").isFile &&
+                    File(rootfs, "opt/gradle/gradle-8.14.3/bin/gradle").isFile &&
+                    File(rootfs, "root/maven/localMvnRepository").let { it.isDirectory && !it.list().isNullOrEmpty() } &&
+                    File(rootfs, "root/.gradle/init.d/pocketdev-android.gradle").isFile
+            else -> true
+        }
     }
 
     private fun readDevStackState(): MutableMap<String, Boolean> {
@@ -1586,16 +2263,107 @@ class RuntimeInstaller(private val context: Context) {
             environment = buildMap {
                 put("HOME", "/root")
                 val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
-                val basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                val basePath = "/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                val sdkRoot = File(rootfs, "root/android-sdk")
+                val projectProfile = readProjectToolchainProfile(workspace)
+                val defaultCmake = File(rootfs, "root/.pocket-default-cmake-version").readTextOrNull()
+                val projectCmake = projectProfile?.optString("cmake")?.takeIf { version ->
+                    version == "system" || File(sdkRoot, "cmake/$version/bin/cmake").let { executable ->
+                        executable.isFile && executable.canExecute() && isAarch64Elf(executable)
+                    }
+                }
+                val requestedCmake = projectCmake ?: defaultCmake
+                val selectedCmake = requestedCmake?.takeIf { it != "system" }
+                    ?.takeIf { File(sdkRoot, "cmake/$it/bin/cmake").let { executable -> executable.isFile && executable.canExecute() && isAarch64Elf(executable) } }
+                val defaultNdk = File(rootfs, "root/.pocket-default-ndk-version").readTextOrNull()
+                val projectNdk = projectProfile?.optString("ndk")?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
+                val selectedNdk = projectNdk ?: defaultNdk?.takeIf { isValidNativeNdk(File(sdkRoot, "ndk/$it")) }
+                val defaultGcc = File(rootfs, "root/.pocket-default-gcc-version").readTextOrNull()
+                val projectGcc = projectProfile?.optString("gcc")?.takeIf {
+                    File(rootfs, "usr/bin/gcc-$it").canExecute() && File(rootfs, "usr/bin/g++-$it").canExecute()
+                }
+                val selectedGcc = projectGcc ?: defaultGcc
+                    ?.takeIf { File(rootfs, "usr/bin/gcc-$it").canExecute() && File(rootfs, "usr/bin/g++-$it").canExecute() }
+                    ?: "10"
+                val defaultApi = File(rootfs, "root/.pocket-default-android-api").readTextOrNull()?.toIntOrNull()
+                val projectApi = projectProfile?.optInt("sdkApi", -1)?.takeIf {
+                    File(sdkRoot, "platforms/android-$it/android.jar").isFile
+                }
+                val selectedApi = projectApi ?: defaultApi?.takeIf {
+                    File(sdkRoot, "platforms/android-$it/android.jar").isFile
+                } ?: 36.takeIf { File(sdkRoot, "platforms/android-36/android.jar").isFile }
+                val defaultBuildTools = File(rootfs, "root/.pocket-default-build-tools-version").readTextOrNull()
+                val profileBuildTools = projectProfile?.optString("buildTools")?.takeIf {
+                    isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it"))
+                }
+                val selectedBuildTools = profileBuildTools ?: defaultBuildTools?.takeIf {
+                    isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it"))
+                } ?: "35.0.0".takeIf { isValidAndroidBuildTools(File(sdkRoot, "build-tools/$it")) }
+                val extraPath = buildList {
+                    selectedNdk?.let { add("/root/android-sdk/ndk/$it/toolchains/llvm/prebuilt/linux-aarch64/bin") }
+                    selectedCmake?.let { add("/root/android-sdk/cmake/$it/bin") }
+                    selectedBuildTools?.let { add("/root/android-sdk/build-tools/$it") }
+                }
+                val androidPath = if (androidReady) listOf(
+                    "/opt/gradle/gradle-8.14.3/bin",
+                    "/root/android-sdk/cmdline-tools/latest/bin",
+                ) else emptyList()
+                put("PATH", (extraPath + androidPath + basePath.split(":")).distinct().joinToString(":"))
                 if (androidReady) {
                     put("ANDROID_HOME", "/root/android-sdk")
                     put("ANDROID_SDK_ROOT", "/root/android-sdk")
                     put("GRADLE_HOME", "/opt/gradle/gradle-8.14.3")
                     put("GRADLE_USER_HOME", "/root/.gradle")
-                    put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/35.0.0/aapt2")
-                    put("PATH", "/opt/gradle/gradle-8.14.3/bin:/root/android-sdk/build-tools/35.0.0:/root/android-sdk/cmdline-tools/latest/bin:$basePath")
-                } else {
-                    put("PATH", basePath)
+                }
+                selectedBuildTools?.let {
+                    put("ANDROID_BUILD_TOOLS_VERSION", it)
+                    put("ANDROID_BUILD_TOOLS_HOME", "/root/android-sdk/build-tools/$it")
+                    put("POCKETDEV_AAPT2_OVERRIDE", "/root/android-sdk/build-tools/$it/aapt2")
+                    put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/$it/aapt2")
+                } ?: put("POCKETDEV_AAPT2_OVERRIDE", ANDROID_AAPT2_GUEST_PATH)
+                selectedCmake?.let { put("CMAKE_HOME", "/root/android-sdk/cmake/$it") }
+                selectedNdk?.let { version ->
+                    val ndkRoot = "/root/android-sdk/ndk/$version"
+                    val ndkBin = File(sdkRoot, "ndk/$version/toolchains/llvm/prebuilt/linux-aarch64/bin")
+                    put("ANDROID_NDK_HOME", ndkRoot)
+                    put("ANDROID_NDK_ROOT", ndkRoot)
+                    // Keep host CC/CXX pointed at GCC by default for Node/Graft. Expose the
+                    // selected NDK's matching API wrappers separately for explicit cross-builds.
+                    val ndkApis = ndkBin.listFiles().orEmpty().mapNotNull { executable ->
+                        Regex("""^aarch64-linux-android(\d+)-clang$""")
+                            .matchEntire(executable.name)?.groupValues?.get(1)?.toIntOrNull()
+                    }.distinct().sorted()
+                    val requestedNdkApi = selectedApi ?: 21
+                    val ndkApi = ndkApis.filter { api -> api <= requestedNdkApi }.maxOrNull()
+                        ?: ndkApis.minOrNull()
+                    ndkApi?.let { api ->
+                        val androidCc = File(ndkBin, "aarch64-linux-android$api-clang")
+                        val androidCxx = File(ndkBin, "aarch64-linux-android$api-clang++")
+                        if (androidCc.canExecute() && androidCxx.canExecute()) {
+                            put("ANDROID_CC", androidCc.absolutePath)
+                            put("ANDROID_CXX", androidCxx.absolutePath)
+                            put("ANDROID_NDK_API", api.toString())
+                        }
+                    }
+                    listOf("llvm-ar" to "ANDROID_AR", "llvm-ranlib" to "ANDROID_RANLIB", "llvm-strip" to "ANDROID_STRIP")
+                        .forEach { (binary, key) ->
+                            File(ndkBin, binary).takeIf { it.canExecute() }?.let { put(key, it.absolutePath) }
+                        }
+                }
+                selectedApi?.let {
+                    put("ANDROID_PLATFORM_API", it.toString())
+                    put("ANDROID_COMPILE_SDK", it.toString())
+                    put("ANDROID_PLATFORM", "android-$it")
+                    // FFmpeg and several legacy NDK build scripts read API directly.
+                    put("API", it.toString())
+                }
+                // GCC 10 remains installed for Node 24 / Graft C++20 addons, while legacy builds
+                // may select another installed compiler from Settings.
+                if (File(rootfs, "usr/bin/python3").canExecute()) put("PYTHON", "/usr/bin/python3")
+                if (File(rootfs, "usr/bin/gcc-$selectedGcc").canExecute() && File(rootfs, "usr/bin/g++-$selectedGcc").canExecute()) {
+                    put("CC", "/usr/bin/gcc-$selectedGcc")
+                    put("CXX", "/usr/bin/g++-$selectedGcc")
+                    if (selectedGcc == "10") put("CXXFLAGS", "-std=gnu++20")
                 }
                 put("LANG", "C.UTF-8")
                 put("TERM", "xterm-256color")
@@ -1908,6 +2676,7 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
     companion object {
         const val AGY_GUEST_PATH = "/root/.local/bin/agy"
         const val GITHUB_CLI_GUEST_PATH = "/root/.local/bin/gh"
+        const val CODEX_GUEST_PATH = "/usr/local/lib/nodejs/bin/codex"
         private const val AGY_VERSION = "1.1.27"
         private const val AGY_RELEASE_URL = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.1.27-5211191891591168/linux-arm/cli_linux_arm64.tar.gz"
         private const val AGY_RELEASE_SHA512 = "ed45f6930785aa4b42f14e07ace1c9d91a94fb76e760f54acbd7d3d3951e1f957fd456a0dae2a3124dd9a3b689bf7afb7c9303a3e4ba95037fc10063424d9bf9"
@@ -1926,6 +2695,8 @@ printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decis
         private const val LEGACY_CORE_TOOLS_VERSION = "core-bundle-2026.09.4"
         private const val SYSTEM_UPGRADE_VERSION = "ubuntu-maintenance-v1"
         private const val ANDROID_TOOLS_VERSION = "sdk36-build-tools35-gradle8.14.3-maven-2026.09"
+        private val SUPPORTED_GCC_VERSIONS = listOf("9", "10")
+        private val TOOL_VERSION_PATTERN = Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")
         private const val ANDROID_ASSET_BASE = "https://appdevforall.org/dev-assets/debug"
         private const val ANDROID_SDK_URL = "$ANDROID_ASSET_BASE/android-sdk-arm64-v8a.zip"
         private const val ANDROID_SDK_SHA256 = "bfe5bc940a7ede14735817a40962256666ce4152b9f3135f34a4ab9bccb87c3f"

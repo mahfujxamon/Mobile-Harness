@@ -50,6 +50,7 @@ import com.jarves.mh.network.ConnectionValidation
 import com.jarves.mh.network.ModelDiscoveryResult
 import com.jarves.mh.network.ProviderApiClient
 import com.jarves.mh.network.GitHubRepository
+import com.jarves.mh.runtime.CodexRuntimeBridge
 import com.jarves.mh.runtime.ClaudeRuntimeBridge
 import com.jarves.mh.runtime.DshRuntimeBridge
 import com.jarves.mh.runtime.AgentRegistry
@@ -61,6 +62,10 @@ import com.jarves.mh.runtime.AntigravityRuntimeBridge
 import com.jarves.mh.runtime.NativeSpawnProcess
 import com.jarves.mh.runtime.RuntimeInstallProgress
 import com.jarves.mh.runtime.RuntimeInstaller
+import com.jarves.mh.runtime.ToolchainAction
+import com.jarves.mh.runtime.ToolchainInventory
+import com.jarves.mh.runtime.ToolchainManagerSnapshot
+import com.jarves.mh.runtime.ToolchainProjectProfile
 import com.jarves.mh.runtime.RuntimeSetupController
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.RuntimeSetupSnapshot
@@ -357,6 +362,13 @@ data class AppUiState(
     val devStackProgress: Float = 0f,
     val devStackBytes: Pair<Long, Long>? = null,
     val devStackBytesPerSecond: Long? = null,
+    val toolchainInventory: ToolchainInventory = ToolchainInventory(),
+    val toolchainManagerBusy: Boolean = false,
+    val toolchainManagerMessage: String? = null,
+    val toolchainManagerProgress: Float = 0f,
+    val toolchainProfileProjectId: String? = null,
+    val toolchainProfileSaved: Boolean = false,
+    val toolchainProjectProfile: ToolchainProjectProfile? = null,
     val agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val primaryAgentKind: AgentKind = AgentKind.CLAUDE_CODE,
     val installedAgentVersions: Map<AgentKind, String> = emptyMap(),
@@ -415,6 +427,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferences(application)
     private val claudeRuntime = ClaudeRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
     private val dshRuntime = DshRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
+    private val codexRuntime = CodexRuntimeBridge(application) { profile -> vault.get(profile.kind.name) }
     private val installer = RuntimeInstaller(application)
     private val antigravityRuntime = AntigravityRuntimeBridge(
         application,
@@ -427,7 +440,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value.activeChatId?.let { preferences.saveAgentConversation(AgentKind.ANTIGRAVITY, projectId, it, id) }
         },
     )
-    private val agentRegistry = AgentRegistry.builtIns(claudeRuntime, dshRuntime, antigravityRuntime)
+    private val agentRegistry = AgentRegistry.builtIns(claudeRuntime, dshRuntime, antigravityRuntime, codexRuntime)
     private fun activeRuntime(): com.jarves.mh.runtime.RuntimeBridge = agentRegistry.require(_state.value.agentKind).runtime
     private val providerApi = ProviderApiClient(application)
     private fun appUpdater(): AppUpdater = AppUpdater(
@@ -570,6 +583,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch { dshRuntime.events.collect(::onRuntimeEvent) }
         viewModelScope.launch { antigravityRuntime.events.collect(::onRuntimeEvent) }
+        viewModelScope.launch { codexRuntime.events.collect(::onRuntimeEvent) }
         viewModelScope.launch {
             antigravityAuthController.state.collect { auth ->
                 _state.update { it.copy(antigravityAuth = auth) }
@@ -888,6 +902,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { claudeRuntime.stopActiveSession() }
                 runCatching { dshRuntime.stopActiveSession() }
                 runCatching { antigravityRuntime.stopActiveSession() }
+                runCatching { codexRuntime.stopActiveSession() }
             }
             if (!current.projectTerminalRunning) {
                 projectTerminalProcess?.takeIf(Process::isAlive)?.destroyForcibly()
@@ -2045,6 +2060,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         claudeRuntime.configureProjectRoot(projectId, rootPath)
         dshRuntime.configureProjectRoot(projectId, rootPath)
         antigravityRuntime.configureProjectRoot(projectId, rootPath)
+        codexRuntime.configureProjectRoot(projectId, rootPath)
     }
 
     init {
@@ -2815,6 +2831,165 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+
+    /** Refreshes installed side-by-side toolchains shown in Settings. */
+    fun refreshToolchainInventory() {
+        if (_state.value.toolchainManagerBusy) return
+        val projectId = _state.value.activeProject?.id
+        _state.update { it.copy(toolchainManagerBusy = true, toolchainManagerMessage = null) }
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val inventory = installer.toolchainInventory()
+                    ToolchainManagerSnapshot(
+                        inventory = inventory,
+                        projectId = projectId,
+                        projectProfileSaved = projectId?.let { installer.hasProjectToolchainProfile(it) } == true,
+                        projectProfile = projectId?.let { installer.loadProjectToolchainProfile(it) },
+                    )
+                }
+            }
+            _state.update { current ->
+                val refreshed = result.getOrNull()
+                val sameProject = refreshed != null && refreshed.projectId == current.activeProject?.id
+                current.copy(
+                    toolchainInventory = refreshed?.inventory ?: current.toolchainInventory,
+                    toolchainProfileProjectId = current.activeProject?.id,
+                    toolchainProfileSaved = if (sameProject) refreshed?.projectProfileSaved == true
+                        else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProfileSaved else false,
+                    toolchainProjectProfile = if (sameProject) refreshed?.projectProfile
+                        else if (refreshed == null && current.activeProject?.id == current.toolchainProfileProjectId) current.toolchainProjectProfile else null,
+                    toolchainManagerBusy = false,
+                    toolchainManagerProgress = 0f,
+                    toolchainManagerMessage = result.exceptionOrNull()?.message?.take(240),
+                )
+            }
+        }
+    }
+
+    /** Dispatches versioned compiler, SDK-platform, CMake and NDK actions from Settings. */
+    fun onToolchainAction(action: ToolchainAction) {
+        if (action === ToolchainAction.Refresh) {
+            refreshToolchainInventory()
+            return
+        }
+        val current = _state.value
+        if (current.toolchainManagerBusy) return
+        val profileProjectId = when (action) {
+            is ToolchainAction.SaveProjectProfile -> action.projectId
+            is ToolchainAction.ClearProjectProfile -> action.projectId
+            else -> current.activeProject?.id
+        }
+        val removesTool = action is ToolchainAction.RemoveGcc ||
+            action is ToolchainAction.RemoveSdkPlatform ||
+            action is ToolchainAction.RemoveBuildTools ||
+            action is ToolchainAction.RemoveCmake ||
+            action is ToolchainAction.RemoveNdk
+        if (removesTool && (current.isRunning || current.projectTerminalRunning || current.androidBuildRunning)) {
+            _state.update { it.copy(toastMessage = str(R.string.vm_stop_before_removing_tools)) }
+            return
+        }
+        _state.update {
+            it.copy(
+                toolchainManagerBusy = true,
+                toolchainManagerProgress = 0f,
+                toolchainManagerMessage = "Starting toolchain operation…",
+            )
+        }
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val progress: suspend (RuntimeInstallProgress) -> Unit = { event ->
+                        _state.update { state ->
+                            state.copy(
+                                toolchainManagerMessage = event.message,
+                                toolchainManagerProgress = event.fraction.coerceIn(0f, 1f),
+                            )
+                        }
+                    }
+                    when (action) {
+                        ToolchainAction.Refresh -> Unit
+                        is ToolchainAction.InstallGcc -> installer.installCompilerVersion(action.version, progress)
+                        is ToolchainAction.SelectGcc -> installer.selectCompilerVersion(action.version)
+                        is ToolchainAction.RemoveGcc -> installer.removeCompilerVersion(action.version, progress)
+                        is ToolchainAction.InstallSdkPlatform -> installer.installSdkPlatform(action.api, progress)
+                        is ToolchainAction.SelectSdkPlatform -> installer.selectSdkPlatform(action.api)
+                        is ToolchainAction.RemoveSdkPlatform -> installer.removeSdkPlatform(action.api, progress)
+                        is ToolchainAction.InstallBuildTools -> installer.installBuildToolsVersion(action.version, progress)
+                        is ToolchainAction.SelectBuildTools -> installer.selectBuildToolsVersion(action.version)
+                        is ToolchainAction.RemoveBuildTools -> installer.removeBuildToolsVersion(action.version, progress)
+                        is ToolchainAction.InstallCmake -> installer.installCmakeVersion(action.version, action.url, action.sha256, progress)
+                        is ToolchainAction.SelectCmake -> installer.selectCmakeVersion(action.version)
+                        is ToolchainAction.RemoveCmake -> installer.removeCmakeVersion(action.version, progress)
+                        is ToolchainAction.InstallNdk -> installer.installNdkArchive(action.version, action.url, action.sha256, progress)
+                        is ToolchainAction.SelectNdk -> installer.selectNdkVersion(action.version)
+                        is ToolchainAction.RemoveNdk -> installer.removeNdkVersion(action.version, progress)
+                        is ToolchainAction.SaveProjectProfile -> installer.saveProjectToolchainProfile(
+                            action.projectId,
+                            ToolchainProjectProfile(
+                                gccVersion = action.gccVersion,
+                                sdkApi = action.sdkApi,
+                                buildToolsVersion = action.buildToolsVersion,
+                                cmakeVersion = action.cmakeVersion,
+                                ndkVersion = action.ndkVersion,
+                            ),
+                        )
+                        is ToolchainAction.ClearProjectProfile -> installer.clearProjectToolchainProfile(action.projectId)
+                    }
+                    ToolchainManagerSnapshot(
+                        inventory = installer.toolchainInventory(),
+                        projectId = profileProjectId,
+                        projectProfileSaved = profileProjectId?.let { installer.hasProjectToolchainProfile(it) } == true,
+                        projectProfile = profileProjectId?.let { installer.loadProjectToolchainProfile(it) },
+                    )
+                }
+            }
+            _state.update { state ->
+                val refreshed = result.getOrNull()
+                val sameProject = refreshed != null && refreshed.projectId == state.activeProject?.id
+                state.copy(
+                    toolchainInventory = refreshed?.inventory ?: state.toolchainInventory,
+                    toolchainManagerBusy = false,
+                    toolchainManagerProgress = if (result.isSuccess) 1f else 0f,
+                    toolchainManagerMessage = result.fold(
+                        onSuccess = { toolchainActionSuccessMessage(action) },
+                        onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
+                    ),
+                    toolchainProfileProjectId = state.activeProject?.id,
+                    toolchainProfileSaved = if (sameProject) refreshed?.projectProfileSaved == true
+                        else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProfileSaved else false,
+                    toolchainProjectProfile = if (sameProject) refreshed?.projectProfile
+                        else if (refreshed == null && state.activeProject?.id == state.toolchainProfileProjectId) state.toolchainProjectProfile else null,
+                    toastMessage = result.fold(
+                        onSuccess = { toolchainActionSuccessMessage(action) },
+                        onFailure = { it.message?.take(240) ?: "Toolchain operation failed." },
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun toolchainActionSuccessMessage(action: ToolchainAction): String = when (action) {
+        ToolchainAction.Refresh -> "Toolchain inventory refreshed."
+        is ToolchainAction.InstallGcc -> "GCC/G++ ${action.version} installed."
+        is ToolchainAction.SelectGcc -> "GCC/G++ ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveGcc -> "GCC/G++ ${action.version} removed."
+        is ToolchainAction.InstallSdkPlatform -> "Android SDK API ${action.api} installed."
+        is ToolchainAction.SelectSdkPlatform -> "Android SDK API ${action.api} selected for project scripts."
+        is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api} removed."
+        is ToolchainAction.InstallBuildTools -> "Android Build Tools ${action.version} installed."
+        is ToolchainAction.SelectBuildTools -> "Android Build Tools ${action.version} selected for new processes."
+        is ToolchainAction.RemoveBuildTools -> "Android Build Tools ${action.version} removed."
+        is ToolchainAction.InstallCmake -> "CMake ${action.version} installed."
+        is ToolchainAction.SelectCmake -> "CMake ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveCmake -> "CMake ${action.version} removed."
+        is ToolchainAction.InstallNdk -> "NDK ${action.version} installed."
+        is ToolchainAction.SelectNdk -> "NDK ${action.version} selected for new terminal sessions."
+        is ToolchainAction.RemoveNdk -> "NDK ${action.version} removed."
+        is ToolchainAction.SaveProjectProfile -> "Saved toolchain selections for this project."
+        is ToolchainAction.ClearProjectProfile -> "Removed project overrides; global toolchain selections apply again."
     }
 
     suspend fun discoverModels(profile: ProviderProfile, secret: String): ModelDiscoveryResult {

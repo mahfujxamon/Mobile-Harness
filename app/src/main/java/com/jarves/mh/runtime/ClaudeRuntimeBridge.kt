@@ -178,6 +178,21 @@ class ClaudeRuntimeBridge(
                 add(launch.environment["ANTHROPIC_MODEL"] ?: provider.model)
                 add("--max-turns")
                 add("25")
+                // Headless runs cannot show Claude Code's interactive tool-approval prompt.
+                // Explicitly allow coding tools and live web search so they do not fail as
+                // permission-denied operations in print mode.
+                add("--allowedTools")
+                listOf(
+                    "Bash",
+                    "Read",
+                    "Edit",
+                    "Write",
+                    "Glob",
+                    "Grep",
+                    "NotebookEdit",
+                    "WebSearch",
+                    "WebFetch",
+                ).forEach(::add)
             }
             Log.d("ClaudeBridge", "Launching command: $command")
             val process = installer.process(

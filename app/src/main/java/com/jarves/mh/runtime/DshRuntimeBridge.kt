@@ -740,6 +740,12 @@ internal object DshRouteMapper {
                 defaultModel = model,
                 custom = DshCustomRoute("anthropic-messages", profile.resolvedBaseUrl),
             )
+            ProviderKind.OPENAI -> DshRoute(
+                name = "openai-api",
+                keyEnv = DshRuntimeBridge.FALLBACK_KEY_ENV,
+                defaultModel = model,
+                custom = DshCustomRoute("openai-responses", profile.resolvedBaseUrl),
+            )
             ProviderKind.LLM_ROUTER -> DshRoute(
                 name = "mh-openrouter",
                 keyEnv = DshRuntimeBridge.FALLBACK_KEY_ENV,

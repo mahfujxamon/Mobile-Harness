@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -67,6 +69,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,12 +107,13 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.ui.res.stringResource
 import com.jarves.mh.R
 import com.jarves.mh.runtime.AntigravityAuthStatus
+import com.jarves.mh.runtime.ToolchainAction
 import com.jarves.mh.ui.theme.AppLanguage
 import com.jarves.mh.ui.theme.AppThemeMode
 import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.launch
 
-private enum class SettingsSection { APPEARANCE, LANGUAGE, TOOLS, RUNTIME, DIAGNOSTICS, UPDATE_CHANNEL }
+private enum class SettingsSection { APPEARANCE, LANGUAGE, TOOLS, TOOLCHAINS, RUNTIME, DIAGNOSTICS, UPDATE_CHANNEL }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +133,7 @@ fun SettingsScreen(
     onRemoveApiKey: (ProviderKind, String) -> List<ApiKeyInfo>,
     onInstallDevStack: (DevStack) -> Unit = {},
     onRemoveDevStack: (DevStack) -> Unit = {},
+    onToolchainAction: (ToolchainAction) -> Unit = {},
     onInstallAgent: (AgentKind) -> Unit = {},
     onCheckAgentUpdates: () -> Unit = {},
     onUpdateAgent: (AgentKind) -> Unit = {},
@@ -150,6 +155,32 @@ fun SettingsScreen(
     var terminalCleared by remember { mutableStateOf(false) }
     var showReliabilityHelp by rememberSaveable { mutableStateOf(false) }
     var stackPendingRemoval by remember { mutableStateOf<DevStack?>(null) }
+    var toolchainPendingRemoval by remember { mutableStateOf<ToolchainAction?>(null) }
+    var gccVersionInput by rememberSaveable { mutableStateOf("9") }
+    var sdkApiInput by rememberSaveable { mutableStateOf("35") }
+    var buildToolsVersionInput by rememberSaveable { mutableStateOf("35.0.0") }
+    var cmakeVersionInput by rememberSaveable { mutableStateOf("3.31.12") }
+    var cmakeUrlInput by rememberSaveable { mutableStateOf("") }
+    var cmakeShaInput by rememberSaveable { mutableStateOf("") }
+    var ndkVersionInput by rememberSaveable { mutableStateOf("") }
+    var ndkUrlInput by rememberSaveable { mutableStateOf("") }
+    var ndkShaInput by rememberSaveable { mutableStateOf("") }
+    var projectGccOverride by rememberSaveable { mutableStateOf("") }
+    var projectApiOverride by rememberSaveable { mutableStateOf("") }
+    var projectBuildToolsOverride by rememberSaveable { mutableStateOf("") }
+    var projectCmakeOverride by rememberSaveable { mutableStateOf("") }
+    var projectNdkOverride by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(state.activeProject?.id) {
+        onToolchainAction(ToolchainAction.Refresh)
+    }
+    LaunchedEffect(state.toolchainProfileProjectId, state.toolchainProjectProfile) {
+        projectGccOverride = state.toolchainProjectProfile?.gccVersion.orEmpty()
+        projectApiOverride = state.toolchainProjectProfile?.sdkApi?.toString().orEmpty()
+        projectBuildToolsOverride = state.toolchainProjectProfile?.buildToolsVersion.orEmpty()
+        projectCmakeOverride = state.toolchainProjectProfile?.cmakeVersion.orEmpty()
+        projectNdkOverride = state.toolchainProjectProfile?.ndkVersion.orEmpty()
+    }
 
     stackPendingRemoval?.let { stack ->
         AlertDialog(
@@ -167,6 +198,38 @@ fun SettingsScreen(
                 ) { Text(stringResource(R.string.action_remove), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { stackPendingRemoval = null }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+
+
+    toolchainPendingRemoval?.let { action ->
+        val label = when (action) {
+            is ToolchainAction.RemoveGcc -> stringResource(R.string.toolchains_gcc_version, action.version)
+            is ToolchainAction.RemoveSdkPlatform -> "Android SDK API ${action.api}"
+            is ToolchainAction.RemoveBuildTools -> stringResource(R.string.toolchains_buildtools_version, action.version)
+            is ToolchainAction.RemoveCmake -> if (action.version == "system") {
+                stringResource(R.string.toolchains_system_cmake)
+            } else {
+                stringResource(R.string.toolchains_cmake_version, action.version)
+            }
+            is ToolchainAction.RemoveNdk -> stringResource(R.string.toolchains_ndk_version, action.version)
+            else -> stringResource(R.string.toolchains_title)
+        }
+        AlertDialog(
+            onDismissRequest = { toolchainPendingRemoval = null },
+            title = { Text(stringResource(R.string.toolchains_remove_dialog_title)) },
+            text = { Text(stringResource(R.string.toolchains_remove_dialog_desc, label)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        toolchainPendingRemoval = null
+                        onToolchainAction(action)
+                    },
+                ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { toolchainPendingRemoval = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
         )
     }
 
@@ -393,6 +456,410 @@ fun SettingsScreen(
                             )
                         }
                         if (index != DevStack.entries.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+                }
+            }
+
+
+            item {
+                val inventory = state.toolchainInventory
+                SettingsAccordion(
+                    title = stringResource(R.string.toolchains_title),
+                    subtitle = stringResource(R.string.toolchains_subtitle),
+                    icon = Icons.Default.Memory,
+                    expanded = expanded == SettingsSection.TOOLCHAINS,
+                    onClick = {
+                        val opening = expanded != SettingsSection.TOOLCHAINS
+                        toggle(SettingsSection.TOOLCHAINS)
+                        if (opening) onToolchainAction(ToolchainAction.Refresh)
+                    },
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            stringResource(R.string.toolchains_description),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_profile_title), fontWeight = FontWeight.Bold)
+                        val activeToolchainProject = state.activeProject
+                        val projectProfileSaved = activeToolchainProject != null &&
+                            state.toolchainProfileProjectId == activeToolchainProject.id && state.toolchainProfileSaved
+                        Text(
+                            activeToolchainProject?.let { stringResource(R.string.toolchains_profile_active_project, it.name) }
+                                ?: stringResource(R.string.toolchains_profile_project_none),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(if (projectProfileSaved) R.string.toolchains_profile_saved else R.string.toolchains_profile_inherited),
+                            fontSize = 12.sp,
+                            color = if (projectProfileSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.toolchains_profile_description),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_gcc_override),
+                            selected = projectGccOverride,
+                            options = inventory.installedGccVersions,
+                            inheritedValue = inventory.selectedGccVersion,
+                            onSelected = { projectGccOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_sdk_override),
+                            selected = projectApiOverride,
+                            options = inventory.installedSdkPlatforms.map { it.toString() },
+                            inheritedValue = inventory.selectedSdkApi?.toString() ?: "none",
+                            onSelected = { projectApiOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_buildtools_override),
+                            selected = projectBuildToolsOverride,
+                            options = inventory.installedBuildToolsVersions,
+                            inheritedValue = inventory.selectedBuildToolsVersion ?: "none",
+                            onSelected = { projectBuildToolsOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_cmake_override),
+                            selected = projectCmakeOverride,
+                            options = inventory.installedCmakeVersions,
+                            inheritedValue = inventory.selectedCmakeVersion ?: "none",
+                            onSelected = { projectCmakeOverride = it },
+                        )
+                        ToolchainOverrideSelector(
+                            label = stringResource(R.string.toolchains_profile_ndk_override),
+                            selected = projectNdkOverride,
+                            options = inventory.installedNdkVersions,
+                            inheritedValue = inventory.selectedNdkVersion ?: "none",
+                            onSelected = { projectNdkOverride = it },
+                        )
+                        val hasProjectOverride = projectGccOverride.isNotBlank() ||
+                            projectApiOverride.isNotBlank() || projectBuildToolsOverride.isNotBlank() ||
+                            projectCmakeOverride.isNotBlank() || projectNdkOverride.isNotBlank()
+                        Button(
+                            onClick = {
+                                activeToolchainProject?.let { project ->
+                                    onToolchainAction(
+                                        ToolchainAction.SaveProjectProfile(
+                                            projectId = project.id,
+                                            gccVersion = projectGccOverride.takeIf { it.isNotBlank() },
+                                            sdkApi = projectApiOverride.toIntOrNull(),
+                                            buildToolsVersion = projectBuildToolsOverride.takeIf { it.isNotBlank() },
+                                            cmakeVersion = projectCmakeOverride.takeIf { it.isNotBlank() },
+                                            ndkVersion = projectNdkOverride.takeIf { it.isNotBlank() },
+                                        ),
+                                    )
+                                }
+                            },
+                            enabled = !state.toolchainManagerBusy && activeToolchainProject != null &&
+                                inventory.runtimeAvailable && hasProjectOverride,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_profile_save_overrides)) }
+                        if (projectProfileSaved && activeToolchainProject != null) {
+                            OutlinedButton(
+                                onClick = { onToolchainAction(ToolchainAction.ClearProjectProfile(activeToolchainProject.id)) },
+                                enabled = !state.toolchainManagerBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(stringResource(R.string.toolchains_profile_clear)) }
+                        }
+                        HorizontalDivider()
+                        OutlinedButton(
+                            onClick = { onToolchainAction(ToolchainAction.Refresh) },
+                            enabled = !state.toolchainManagerBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_refresh)) }
+                        if (state.toolchainManagerBusy) {
+                            if (state.toolchainManagerProgress > 0f) {
+                                LinearProgressIndicator(
+                                    progress = { state.toolchainManagerProgress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = PocketOrange,
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = PocketOrange)
+                            }
+                        }
+                        state.toolchainManagerMessage?.let {
+                            Text(
+                                it,
+                                fontSize = 12.sp,
+                                color = if (state.toolchainManagerBusy) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                            )
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_gcc), fontWeight = FontWeight.Bold)
+                        Text(
+                            stringResource(R.string.toolchains_gcc_supported),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.toolchains_active, "GCC/G++ ${inventory.selectedGccVersion}"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = gccVersionInput,
+                                onValueChange = { gccVersionInput = it.filter(Char::isDigit).take(2) },
+                                label = { Text(stringResource(R.string.toolchains_version)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                            val requestedGcc = gccVersionInput.trim()
+                            if (requestedGcc in listOf("9", "10") && requestedGcc !in inventory.installedGccVersions) {
+                                Button(
+                                    onClick = { onToolchainAction(ToolchainAction.InstallGcc(requestedGcc)) },
+                                    enabled = !state.toolchainManagerBusy,
+                                ) { Text(stringResource(R.string.toolchains_install)) }
+                            }
+                        }
+                        inventory.installedGccVersions.forEach { version ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.toolchains_gcc_version, version), fontWeight = FontWeight.SemiBold)
+                                    if (version == inventory.selectedGccVersion) {
+                                        Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                if (version != inventory.selectedGccVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectGcc(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                }
+                                if (version != "10" && version != inventory.selectedGccVersion) {
+                                    TextButton(
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveGcc(version) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.toolchains_gcc10_protected),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_sdk), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_sdk_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedSdkApi?.let { "API $it" } ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = sdkApiInput,
+                                onValueChange = { sdkApiInput = it.filter(Char::isDigit).take(3) },
+                                label = { Text(stringResource(R.string.toolchains_sdk_api_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                            val requestedApi = sdkApiInput.toIntOrNull()
+                            if (requestedApi != null && requestedApi in 21..100 && requestedApi !in inventory.installedSdkPlatforms) {
+                                Button(
+                                    onClick = { onToolchainAction(ToolchainAction.InstallSdkPlatform(requestedApi)) },
+                                    enabled = !state.toolchainManagerBusy && DevStack.ANDROID in state.installedDevStacks,
+                                ) { Text(stringResource(R.string.toolchains_install)) }
+                            }
+                        }
+                        inventory.installedSdkPlatforms.forEach { api ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Android API $api", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (api != inventory.selectedSdkApi) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectSdkPlatform(api)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveSdkPlatform(api) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_buildtools), fontWeight = FontWeight.Bold)
+                        Text(
+                            stringResource(R.string.toolchains_buildtools_note),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedBuildToolsVersion?.let { "Build Tools $it" } ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = buildToolsVersionInput,
+                            onValueChange = { buildToolsVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(32) },
+                            label = { Text(stringResource(R.string.toolchains_buildtools_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val requestedBuildTools = buildToolsVersionInput.trim()
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallBuildTools(requestedBuildTools)) },
+                            enabled = !state.toolchainManagerBusy &&
+                                requestedBuildTools.matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                requestedBuildTools !in inventory.installedBuildToolsVersions &&
+                                DevStack.ANDROID in state.installedDevStacks,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " Build Tools") }
+                        inventory.installedBuildToolsVersions.forEach { version ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.toolchains_buildtools_version, version),
+                                    Modifier.weight(1f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (version == inventory.selectedBuildToolsVersion) {
+                                    Text(stringResource(R.string.toolchains_active, version), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                } else {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectBuildTools(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    if (version != "35.0.0") {
+                                        TextButton(
+                                            onClick = { toolchainPendingRemoval = ToolchainAction.RemoveBuildTools(version) },
+                                            enabled = !state.toolchainManagerBusy,
+                                        ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    }
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.toolchains_buildtools_protected),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_cmake), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_cmake_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedCmakeVersion ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = cmakeVersionInput,
+                            onValueChange = { cmakeVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(32) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = cmakeUrlInput,
+                            onValueChange = { cmakeUrlInput = it.take(2048) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_url_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = cmakeShaInput,
+                            onValueChange = { cmakeShaInput = it.filter(Char::isLetterOrDigit).take(64) },
+                            label = { Text(stringResource(R.string.toolchains_cmake_sha_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val requestedCmake = cmakeVersionInput.trim()
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallCmake(requestedCmake, cmakeUrlInput.trim(), cmakeShaInput.trim())) },
+                            enabled = !state.toolchainManagerBusy && requestedCmake.matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                requestedCmake !in inventory.installedCmakeVersions &&
+                                (cmakeUrlInput.isBlank() || (cmakeUrlInput.startsWith("https://") && cmakeShaInput.trim().matches(Regex("""^[a-fA-F0-9]{64}$""")))),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " CMake") }
+                        inventory.installedCmakeVersions.forEach { version ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(if (version == "system") stringResource(R.string.toolchains_system_cmake) else stringResource(R.string.toolchains_cmake_version, version), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (version != inventory.selectedCmakeVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectCmake(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    if (version != "system") {
+                                        TextButton(
+                                            onClick = { toolchainPendingRemoval = ToolchainAction.RemoveCmake(version) },
+                                            enabled = !state.toolchainManagerBusy,
+                                        ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+                        Text(stringResource(R.string.toolchains_section_ndk), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.toolchains_ndk_note), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.toolchains_active, inventory.selectedNdkVersion ?: "None"),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        OutlinedTextField(
+                            value = ndkVersionInput,
+                            onValueChange = { ndkVersionInput = it.filter { ch -> ch.isLetterOrDigit() || ch in ".-+_" }.take(48) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_version_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = ndkUrlInput,
+                            onValueChange = { ndkUrlInput = it.take(2048) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_url_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = ndkShaInput,
+                            onValueChange = { ndkShaInput = it.filter(Char::isLetterOrDigit).take(64) },
+                            label = { Text(stringResource(R.string.toolchains_ndk_sha_hint)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = { onToolchainAction(ToolchainAction.InstallNdk(ndkVersionInput.trim(), ndkUrlInput.trim(), ndkShaInput.trim())) },
+                            enabled = !state.toolchainManagerBusy && ndkVersionInput.trim().matches(Regex("""^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$""")) &&
+                                ndkVersionInput.trim() !in inventory.installedNdkVersions &&
+                                ndkUrlInput.startsWith("https://") &&
+                                ndkShaInput.trim().matches(Regex("""^[a-fA-F0-9]{64}$""")),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.toolchains_install) + " NDK") }
+                        inventory.installedNdkVersions.forEach { version ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(stringResource(R.string.toolchains_ndk_version, version), Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (version != inventory.selectedNdkVersion) {
+                                    TextButton(
+                                        onClick = { onToolchainAction(ToolchainAction.SelectNdk(version)) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_select), maxLines = 1) }
+                                    TextButton(
+                                        onClick = { toolchainPendingRemoval = ToolchainAction.RemoveNdk(version) },
+                                        enabled = !state.toolchainManagerBusy,
+                                    ) { Text(stringResource(R.string.toolchains_remove), color = MaterialTheme.colorScheme.error) }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1110,6 +1577,57 @@ private fun DebugUpdateChannelSection(
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+
+@Composable
+private fun ToolchainOverrideSelector(
+    label: String,
+    selected: String,
+    options: List<String>,
+    inheritedValue: String,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    fun display(value: String): String =
+        if (value == "system") "CMake (Ubuntu system package)" else value
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (selected.isBlank()) stringResource(R.string.toolchains_profile_global_default, inheritedValue) else display(selected),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.toolchains_profile_inherit_global, inheritedValue)) },
+                    onClick = {
+                        onSelected("")
+                        expanded = false
+                    },
+                )
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(display(option)) },
+                        onClick = {
+                            onSelected(option)
+                            expanded = false
+                        },
+                    )
+                }
+            }
         }
     }
 }

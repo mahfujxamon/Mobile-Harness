@@ -21,6 +21,7 @@ import com.jarves.mh.model.ProviderKind
 fun ProviderKind.titleRes(): Int = when (this) {
     ProviderKind.CLAUDE -> R.string.provider_title_claude
     ProviderKind.ANTHROPIC -> R.string.provider_title_anthropic
+    ProviderKind.OPENAI -> R.string.provider_title_openai
     ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_title_deepseek
     ProviderKind.KIMI -> R.string.provider_title_kimi
@@ -33,6 +34,7 @@ fun ProviderKind.titleRes(): Int = when (this) {
 fun ProviderKind.subtitleRes(): Int = when (this) {
     ProviderKind.CLAUDE -> R.string.provider_subtitle_claude
     ProviderKind.ANTHROPIC -> R.string.provider_subtitle_anthropic
+    ProviderKind.OPENAI -> R.string.provider_subtitle_openai
     ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
     ProviderKind.DEEPSEEK -> R.string.provider_subtitle_deepseek
     ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
@@ -45,6 +47,7 @@ fun AgentKind.titleRes(): Int = when (this) {
     AgentKind.CLAUDE_CODE -> R.string.agent_title_claude
     AgentKind.DEEPSEEK_HARNESS -> R.string.agent_title_deepseek
     AgentKind.ANTIGRAVITY -> R.string.agent_title_antigravity
+    AgentKind.CODEX_CLI -> R.string.agent_title_codex
 }
 
 @StringRes
@@ -52,6 +55,7 @@ fun AgentKind.subtitleRes(): Int = when (this) {
     AgentKind.CLAUDE_CODE -> R.string.agent_subtitle_claude
     AgentKind.DEEPSEEK_HARNESS -> R.string.agent_subtitle_deepseek
     AgentKind.ANTIGRAVITY -> R.string.agent_subtitle_antigravity
+    AgentKind.CODEX_CLI -> R.string.agent_subtitle_codex
 }
 
 @StringRes

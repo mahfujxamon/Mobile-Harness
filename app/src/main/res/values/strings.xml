@@ -211,6 +211,7 @@
     <string name="provider_beta">Beta</string>
     <string name="provider_title_claude">Claude subscription</string>
     <string name="provider_title_anthropic">Anthropic API</string>
+    <string name="provider_title_openai">OpenAI API</string>
     <string name="provider_title_openrouter">OpenRouter</string>
     <string name="provider_title_deepseek">DeepSeek</string>
     <string name="provider_title_kimi">Kimi</string>
@@ -219,6 +220,7 @@
     <string name="provider_title_custom">Custom API</string>
     <string name="provider_subtitle_claude">Pro, Max, Team or Enterprise</string>
     <string name="provider_subtitle_anthropic">Usage billed through Console</string>
+    <string name="provider_subtitle_openai">API key billed through OpenAI Platform</string>
     <string name="provider_subtitle_openrouter">Use your OpenRouter API key</string>
     <string name="provider_subtitle_deepseek">Use your DeepSeek API key</string>
     <string name="provider_subtitle_anthropic_compatible">Anthropic-compatible endpoint</string>
@@ -261,9 +263,18 @@
     <string name="agent_title_claude">Claude Code</string>
     <string name="agent_title_deepseek">DeepSeek Harness</string>
     <string name="agent_title_antigravity">Antigravity CLI</string>
+    <string name="agent_title_codex">Codex CLI</string>
     <string name="agent_subtitle_claude">Anthropic’s coding agent · broad provider support</string>
     <string name="agent_subtitle_deepseek">Official DeepSeek coding agent · API-key providers</string>
     <string name="agent_subtitle_antigravity">Google’s official coding agent · Google account</string>
+    <string name="agent_subtitle_codex">Official OpenAI Codex · ChatGPT subscription or API key</string>
+    <string name="provider_codex_chatgpt_title">Use your ChatGPT plan</string>
+    <string name="provider_codex_chatgpt_desc">Sign in with ChatGPT to use Codex included with your plan. No API key is required. After continuing, open the terminal and run this command:</string>
+    <string name="provider_codex_device_command">codex login --device-auth</string>
+    <string name="provider_codex_continue">Save ChatGPT sign-in setup</string>
+    <string name="provider_codex_api_instead">Use an API key instead</string>
+    <string name="agent_codex_provider_saved">Codex provider saved after connection verification.</string>
+    <string name="agent_codex_validate_on_run">Test Connection verifies the API key, endpoint, and model before saving. You can enter a model ID manually.</string>
     <string name="projects_hero_title">Build from your phone</string><string name="projects_hero_desc">Chat, review changes, and preview your project.</string><string name="projects_quick_project">Quick project</string><string name="projects_new_project">New project</string><string name="projects_bring_existing">Bring an existing project</string><string name="projects_import_expanded">Import files or clone complete Git history</string><string name="projects_import_sources">ZIP file, Git repository, or GitHub</string><string name="projects_your_projects">Your projects</string><string name="projects_empty_title">No projects yet</string><string name="projects_empty_desc">Create a named project or start instantly with a Quick Project.</string><string name="projects_terminal">Terminal</string>
     <string name="agent_screen_title">AI Agent</string><string name="agent_status_testing">Testing…</string><string name="agent_status_attention">Attention</string><string name="agent_status_online">Online</string><string name="agent_status_not_tested">Not tested</string><string name="agent_provider_title">AI provider</string><string name="agent_custom_api_settings">Custom API settings</string><string name="agent_endpoint_protocol">Endpoint &amp; protocol</string><string name="agent_model_access">Model &amp; access</string><string name="agent_discovering">Discovering…</string><string name="agent_discover_models">Discover models</string><string name="agent_models_count">%1$d models</string><string name="agent_ai_model">AI model</string><string name="agent_select_model">Select or type a model ID</string><string name="agent_subscription_token">Subscription token</string><string name="agent_credentials">Credentials</string><string name="agent_test_connection">Test connection</string><string name="agent_runtime_updates">Runtime updates</string><string name="agent_updates_current">Installed agents stay current</string><string name="agent_check_updates">Check updates</string><string name="agent_security_footer">API keys encrypted in Android secure storage · Terminal is accessible from any project</string><string name="agent_approval_footer">Automatic tool approval · Runs inside the private Linux workspace</string>
     <string name="projects_importing">Importing…</string><string name="projects_zip_file">ZIP file</string><string name="projects_cloning">Cloning…</string><string name="projects_git_url">Git URL</string><string name="projects_github_account">GitHub · @%1$s</string><string name="projects_connect_github">Connect GitHub</string><string name="projects_browse_repositories">Browse public and private repositories</string><string name="projects_sign_in_repositories">Sign in to access your repositories</string>
@@ -382,4 +393,67 @@
     <string name="diagnostics_inactive_stopped">Inactive processes stopped</string>
     <string name="diagnostics_cache_busy">Wait for active work to finish before clearing output</string>
     <string name="diagnostics_cache_cleared">Disposable runtime output cleared</string>
+
+    <!-- Versioned toolchains -->
+    <string name="toolchains_title">Versioned toolchains</string>
+    <string name="toolchains_subtitle">Install, select and remove compatible versions side-by-side</string>
+    <string name="toolchains_description">Keep legacy and modern build tools installed together. Selections apply to new terminal sessions; project Gradle files may override SDK, NDK and CMake versions.</string>
+    <string name="toolchains_refresh">Refresh inventory</string>
+    <string name="toolchains_section_gcc">GCC / G++ compiler</string>
+    <string name="toolchains_section_sdk">Android SDK platforms</string>
+    <string name="toolchains_section_cmake">CMake</string>
+    <string name="toolchains_section_buildtools">Android Build Tools</string>
+    <string name="toolchains_buildtools_version_hint">Build Tools version (for example 35.0.0)</string>
+    <string name="toolchains_buildtools_note">Versions can coexist, but this ARM64 runtime accepts only packages with a native ARM64 aapt2. Upstream SDK packages may contain x86-64 binaries and will be rejected.</string>
+    <string name="toolchains_buildtools_protected">Build Tools 35.0.0 is retained as the verified runtime baseline and Gradle AAPT2 fallback.</string>
+    <string name="toolchains_profile_buildtools_override">Project Android Build Tools version</string>
+    <string name="toolchains_buildtools_version">Build Tools %1$s</string>
+
+    <string name="toolchains_section_ndk">Android NDK (Linux ARM64 host)</string>
+    <string name="toolchains_version">Version</string>
+    <string name="toolchains_install">Install</string>
+    <string name="toolchains_select">Use</string>
+    <string name="toolchains_remove">Remove</string>
+    <string name="toolchains_active">Selected: %1$s</string>
+    <string name="toolchains_none_installed">No compatible versions detected yet. Refresh after installing the related toolchain.</string>
+    <string name="toolchains_gcc_supported">Available package versions on this Ubuntu 20.04 ARM64 setup: GCC/G++ 9 and 10.</string>
+    <string name="toolchains_gcc10_protected">GCC/G++ 10 is kept installed for Node.js 24 native modules and Graft. It cannot be removed here.</string>
+    <string name="toolchains_sdk_api_hint">Android API level (for example 35 or 36)</string>
+    <string name="toolchains_sdk_note">SDK platforms can coexist. This changes the default API environment variables; a project\'s compileSdk setting still takes precedence.</string>
+    <string name="toolchains_cmake_version_hint">CMake version (for example 3.31.12)</string>
+    <string name="toolchains_cmake_url_hint">Optional HTTPS ARM64 archive URL (leave blank for official Kitware release)</string>
+    <string name="toolchains_cmake_sha_hint">SHA-256 checksum (required for a custom archive)</string>
+    <string name="toolchains_cmake_note">Only native Linux AArch64 binaries are accepted. Legacy CMake builds can be supplied with a custom archive and checksum.</string>
+    <string name="toolchains_ndk_version_hint">NDK version as shown in source.properties</string>
+    <string name="toolchains_ndk_url_hint">HTTPS URL for a Linux ARM64 NDK archive</string>
+    <string name="toolchains_ndk_sha_hint">SHA-256 checksum</string>
+    <string name="toolchains_ndk_note">Google\'s standard Linux NDK archives are x86_64 and cannot run here. Use a trusted Linux/AArch64-host NDK build; invalid or mismatched archives are rejected.</string>
+    <string name="toolchains_busy">A toolchain operation is already running.</string>
+    <string name="toolchains_remove_selected_blocked">Select a different version before removing the currently selected toolchain.</string>
+    <string name="toolchains_remove_dialog_title">Remove toolchain version?</string>
+    <string name="toolchains_remove_dialog_desc">Remove %1$s? Projects or scripts that explicitly require this version may stop building. The selected version and essential GCC 10 fallback are protected.</string>
+    <string name="toolchains_system_cmake">CMake (Ubuntu system package)</string>
+    <string name="toolchains_gcc_version">GCC/G++ %1$s</string>
+    <string name="toolchains_cmake_version">CMake %1$s</string>
+    <string name="toolchains_ndk_version">NDK %1$s</string>
+    <string name="toolchains_profile_title">Active project profile</string>
+    <string name="toolchains_profile_description">Save the current compiler and Android tool selections for this project only. Other projects keep global defaults. Profiles are stored privately by Mobile Harness, not inside your repository.</string>
+    <string name="toolchains_profile_active_project">Project: %1$s</string>
+    <string name="toolchains_profile_project_none">No active project. Open a project to save per-project toolchain selections.</string>
+    <string name="toolchains_profile_saved">A project-specific toolchain profile is saved and will apply to new processes for this project.</string>
+    <string name="toolchains_profile_inherited">This project currently inherits global toolchain selections.</string>
+    <string name="toolchains_profile_save">Save current selections to project</string>
+    <string name="toolchains_profile_clear">Use global defaults for this project</string>
+    <string name="toolchains_profile_gcc_override">Project GCC/G++ version</string>
+    <string name="toolchains_profile_sdk_override">Project Android SDK API</string>
+    <string name="toolchains_profile_cmake_override">Project CMake version</string>
+    <string name="toolchains_profile_ndk_override">Project Android NDK version</string>
+    <string name="toolchains_profile_global_default">Global default (%1$s)</string>
+    <string name="toolchains_profile_inherit_global">Inherit global default (%1$s)</string>
+    <string name="toolchains_profile_save_overrides">Save project overrides</string>
+    <string name="toolchains_profile_choose_override">Choose at least one per-project override, or use global defaults.</string>
+
+
+
+
 </resources>

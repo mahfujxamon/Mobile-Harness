@@ -852,6 +852,7 @@ fun AgentScreen(
                                     AgentKind.ANTIGRAVITY -> "Antigravity"
                                     AgentKind.DEEPSEEK_HARNESS -> "DeepSeek"
                                     AgentKind.CLAUDE_CODE -> "Claude Code"
+                                    AgentKind.CODEX_CLI -> "Codex"
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
@@ -947,6 +948,7 @@ fun AgentScreen(
                                 AgentKind.CLAUDE_CODE -> R.string.agent_title_claude
                                 AgentKind.DEEPSEEK_HARNESS -> R.string.agent_title_deepseek
                                 AgentKind.ANTIGRAVITY -> R.string.agent_title_antigravity
+                                AgentKind.CODEX_CLI -> R.string.agent_title_codex
                             },
                         )
                         Spacer(Modifier.height(8.dp))
@@ -1027,7 +1029,7 @@ fun AgentScreen(
                             selectedKind = kind
                             baseUrl = kind.defaultBaseUrl
                             model = kind.defaultModel
-                            dshApi = defaultDshApiForProvider(kind)
+                            dshApi = if (state.agentKind == AgentKind.CODEX_CLI && kind == ProviderKind.CUSTOM) "openai-responses" else defaultDshApiForProvider(kind)
                             openRouterProviderOrder = ""
                             openRouterAllowFallbacks = true
                             models = emptyList()
@@ -1094,55 +1096,81 @@ fun AgentScreen(
                             scope.launch {
                                 isValidating = true
                                 val activeKeyId = savedKeys.firstOrNull { it.isActive }?.id
-                                if (activeKeyId != null) {
-                                    keyConnectionStatuses = keyConnectionStatuses +
-                                        (activeKeyId to KeyConnectionStatus(context.getString(R.string.st_checking_connection)))
-                                    status = null
-                                } else {
-                                    status = context.getString(R.string.st_checking_connection)
-                                    statusOk = true
-                                }
-                                val kind = selectedKind
-                                val url = if (kind.fixedBaseUrl) kind.defaultBaseUrl else baseUrl.trim()
-                                val profile = ProviderProfile(
-                                    kind,
-                                    url,
-                                    model.trim(),
-                                    dshApi = dshApi,
-                                    openRouterProviderOrder = openRouterProviderOrder,
-                                    openRouterAllowFallbacks = openRouterAllowFallbacks,
-                                )
-                                if (kind == ProviderKind.CLAUDE) {
-                                    onSaveProvider(profile, apiKey.trim())
-                                    status = context.getString(R.string.st_claude_token_saved_status)
-                                    statusOk = true
-                                    activeKeyId?.let {
+                                try {
+                                    val effectiveKey = apiKey.trim().ifBlank { newApiKey.trim() }
+                                    if (activeKeyId != null) {
                                         keyConnectionStatuses = keyConnectionStatuses +
-                                            (it to KeyConnectionStatus(context.getString(R.string.st_subscription_token_saved), true, label = context.getString(R.string.st_saved)))
+                                            (activeKeyId to KeyConnectionStatus(context.getString(R.string.st_checking_connection)))
+                                        status = null
+                                    } else {
+                                        status = context.getString(R.string.st_checking_connection)
+                                        statusOk = true
                                     }
-                                } else when (val result = onValidateProvider(profile, apiKey.trim(), models)) {
-                                    is ConnectionValidation.Success -> {
-                                        onSaveProvider(profile, apiKey.trim())
-                                        if (activeKeyId != null) {
+                                    statusProviderMessage = null
+                                    val kind = selectedKind
+                                    val url = if (kind.fixedBaseUrl) kind.defaultBaseUrl else baseUrl.trim()
+                                    val profile = ProviderProfile(
+                                        kind,
+                                        url,
+                                        model.trim(),
+                                        dshApi = dshApi,
+                                        openRouterProviderOrder = openRouterProviderOrder,
+                                        openRouterAllowFallbacks = openRouterAllowFallbacks,
+                                    )
+                                    if (kind == ProviderKind.CLAUDE) {
+                                        onSaveProvider(profile, effectiveKey)
+                                        status = if (state.agentKind == AgentKind.CODEX_CLI) context.getString(R.string.agent_codex_provider_saved) else context.getString(R.string.st_claude_token_saved_status)
+                                        statusOk = true
+                                        activeKeyId?.let {
                                             keyConnectionStatuses = keyConnectionStatuses +
-                                                (activeKeyId to KeyConnectionStatus(selectedProviderVerifiedMessage, true, label = verifiedStatusLabel))
-                                        } else {
-                                            status = selectedProviderVerifiedMessage
-                                            statusOk = true
+                                                (it to KeyConnectionStatus(if (state.agentKind == AgentKind.CODEX_CLI) context.getString(R.string.agent_codex_provider_saved) else context.getString(R.string.st_subscription_token_saved), true, label = context.getString(R.string.st_saved)))
+                                        }
+                                    } else when (val result = onValidateProvider(profile, effectiveKey, models)) {
+                                        is ConnectionValidation.Success -> {
+                                            onSaveProvider(profile, effectiveKey)
+                                            if (activeKeyId != null) {
+                                                keyConnectionStatuses = keyConnectionStatuses +
+                                                    (activeKeyId to KeyConnectionStatus(selectedProviderVerifiedMessage, true, label = verifiedStatusLabel))
+                                            } else {
+                                                status = selectedProviderVerifiedMessage
+                                                statusOk = true
+                                            }
+                                            if (newApiKey.isNotBlank()) {
+                                                apiKey = effectiveKey
+                                                newApiKey = ""
+                                                newKeyName = ""
+                                                newKeyVisible = false
+                                                savedKeys = getSavedApiKeys(kind)
+                                            }
+                                        }
+                                        is ConnectionValidation.Failure -> {
+                                            if (activeKeyId != null) {
+                                                keyConnectionStatuses = keyConnectionStatuses +
+                                                    (activeKeyId to KeyConnectionStatus(result.message, false, result.providerMessage, result.label))
+                                            } else {
+                                                status = result.message
+                                                statusOk = false
+                                                statusProviderMessage = result.providerMessage
+                                            }
                                         }
                                     }
-                                    is ConnectionValidation.Failure -> {
-                                        if (activeKeyId != null) {
-                                            keyConnectionStatuses = keyConnectionStatuses +
-                                                (activeKeyId to KeyConnectionStatus(result.message, false, result.providerMessage, result.label))
-                                        } else {
-                                            status = result.message
-                                            statusOk = false
-                                            statusProviderMessage = result.providerMessage
-                                        }
+                                } catch (error: Exception) {
+                                    val message = error.message
+                                        ?.replace(Regex("\\s+"), " ")
+                                        ?.trim()
+                                        ?.take(240)
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?: "Connection test failed unexpectedly."
+                                    status = message
+                                    statusOk = false
+                                    statusProviderMessage = null
+                                    activeKeyId?.let { keyId ->
+                                        keyConnectionStatuses = keyConnectionStatuses +
+                                            (keyId to KeyConnectionStatus(message, false))
                                     }
+                                } finally {
+                                    isValidating = false
                                 }
-                                isValidating = false
                             }
                         },
                     )
@@ -1627,7 +1655,7 @@ private fun AgentProviderCard(
                     title = stringResource(if (selectedKind == ProviderKind.CUSTOM) R.string.agent_custom_api_settings else R.string.agent_endpoint_protocol),
                     subtitle = buildString {
                         append(baseUrl.ifBlank { stringResource(R.string.st_base_url_required) })
-                        if (state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) {
+                        if ((state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) || (state.agentKind == AgentKind.CODEX_CLI && selectedKind == ProviderKind.CUSTOM)) {
                             append(" · ")
                             append(if (selectedKind.fixedProtocol) defaultDshApiForProvider(selectedKind) else dshApi)
                         }
@@ -1691,7 +1719,7 @@ private fun AgentProviderCard(
                                 )
                             }
                         }
-                        if (state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS && !selectedKind.fixedProtocol) {
+                        if (((state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) || (state.agentKind == AgentKind.CODEX_CLI && selectedKind == ProviderKind.CUSTOM)) && !selectedKind.fixedProtocol) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(stringResource(R.string.provider_gateway_protocol), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(Modifier.height(5.dp))
@@ -1894,7 +1922,7 @@ private fun AgentProviderCard(
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
                 onClick = onValidate,
-                enabled = (apiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
+                enabled = (apiKey.isNotBlank() || newApiKey.isNotBlank() || selectedKind == ProviderKind.CUSTOM) && !isDiscovering && !isValidating &&
                     (selectedKind == ProviderKind.CLAUDE || (baseUrl.isNotBlank() && model.isNotBlank())),
                 modifier = Modifier.fillMaxWidth().height(46.dp),
                 shape = RoundedCornerShape(13.dp),
@@ -1917,6 +1945,9 @@ private fun AgentProviderCard(
                     color = PocketOrange,
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            if (state.agentKind == AgentKind.CODEX_CLI) {
+                Text(stringResource(R.string.agent_codex_validate_on_run), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             // Claude subscriptions can't be pinged over HTTP; this runs a one-word Claude Code prompt.
             if (selectedKind == ProviderKind.CLAUDE && savedKeys.isNotEmpty() && state.provider.kind == ProviderKind.CLAUDE) {

@@ -1520,6 +1520,7 @@ private const val CORE_RUNTIME_DOWNLOAD_MB = 69
 private const val CLAUDE_RUNTIME_DOWNLOAD_MB = 72
 private const val DSH_RUNTIME_DOWNLOAD_MB = 27
 private const val AGY_RUNTIME_DOWNLOAD_MB = 40
+private const val CODEX_RUNTIME_DOWNLOAD_MB = 100
 private const val PYTHON_RUNTIME_DOWNLOAD_MB = 55
 private const val ANDROID_RUNTIME_DOWNLOAD_MB = 570
 
@@ -1563,6 +1564,7 @@ private fun toolchainDownloadSummary(selected: Set<DevStack>, agent: AgentKind):
             AgentKind.CLAUDE_CODE -> CLAUDE_RUNTIME_DOWNLOAD_MB
             AgentKind.DEEPSEEK_HARNESS -> DSH_RUNTIME_DOWNLOAD_MB
             AgentKind.ANTIGRAVITY -> AGY_RUNTIME_DOWNLOAD_MB
+            AgentKind.CODEX_CLI -> CODEX_RUNTIME_DOWNLOAD_MB
         } +
         (if (DevStack.PYTHON in selected) PYTHON_RUNTIME_DOWNLOAD_MB else 0) +
         (if (DevStack.ANDROID in selected) ANDROID_RUNTIME_DOWNLOAD_MB else 0)
@@ -1652,11 +1654,13 @@ private fun AgentChoiceRow(
         AgentKind.CLAUDE_CODE -> Color(0xFFD97757)
         AgentKind.DEEPSEEK_HARNESS -> Color(0xFF4D6BFE)
         AgentKind.ANTIGRAVITY -> Color(0xFF4285F4)
+        AgentKind.CODEX_CLI -> Color(0xFF10A37F)
     }
     val mark = when (agent) {
         AgentKind.CLAUDE_CODE -> "CC"
         AgentKind.DEEPSEEK_HARNESS -> "DS"
         AgentKind.ANTIGRAVITY -> "AG"
+        AgentKind.CODEX_CLI -> "CX"
     }
     Row(
         modifier = Modifier
@@ -2554,6 +2558,7 @@ private fun RootScreenHost(
                     onRemoveApiKey = viewModel::removeApiKey,
                     onInstallDevStack = viewModel::installDevStack,
                     onRemoveDevStack = viewModel::removeDevStack,
+                    onToolchainAction = viewModel::onToolchainAction,
                     onInstallAgent = viewModel::installAgent,
                     onCheckAgentUpdates = viewModel::checkAgentUpdates,
                     onUpdateAgent = viewModel::updateAgent,
@@ -3010,6 +3015,7 @@ private fun providerTitleResource(provider: ProviderKind): Int = when (provider)
     ProviderKind.KIMI -> R.string.provider_title_kimi
     ProviderKind.OPENCODE_ZEN -> R.string.provider_title_opencode
     ProviderKind.NVIDIA_NIM -> R.string.provider_title_nvidia
+    ProviderKind.OPENAI -> R.string.provider_title_openai
     ProviderKind.CUSTOM -> R.string.provider_title_custom
 }
 
@@ -3022,6 +3028,7 @@ private fun providerSubtitleResource(provider: ProviderKind): Int = when (provid
     ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
     ProviderKind.OPENCODE_ZEN -> R.string.provider_subtitle_opencode
     ProviderKind.NVIDIA_NIM -> R.string.provider_subtitle_nvidia
+    ProviderKind.OPENAI -> R.string.provider_subtitle_openai
 }
 
 @Composable
@@ -3038,6 +3045,7 @@ private fun ProviderChoiceRow(
         ProviderKind.KIMI -> Color(0xFF8B7CF6)
         ProviderKind.OPENCODE_ZEN -> Color(0xFF22C55E)
         ProviderKind.NVIDIA_NIM -> Color(0xFF76B900)
+        ProviderKind.OPENAI -> Color(0xFF10A37F)
         ProviderKind.CUSTOM -> PocketOrange
     }
     val mark = when (provider) {
@@ -3048,6 +3056,7 @@ private fun ProviderChoiceRow(
         ProviderKind.KIMI -> "K"
         ProviderKind.OPENCODE_ZEN -> "Z"
         ProviderKind.NVIDIA_NIM -> "NV"
+        ProviderKind.OPENAI -> "AI"
         ProviderKind.CUSTOM -> "<>"
     }
 
@@ -3147,6 +3156,7 @@ private fun ProviderCredentialsStep(
     var statusOk by remember { mutableStateOf(false) }
     var showModels by rememberSaveable { mutableStateOf(false) }
     var modelSearch by rememberSaveable { mutableStateOf("") }
+    var useCodexApiKey by rememberSaveable { mutableStateOf(false) }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Custom API servers that are self-hosted (llama.cpp, LM Studio…) often need no key.
     val hasKey = apiKey.isNotBlank() || hasStoredSecret || provider == ProviderKind.CUSTOM
@@ -3165,6 +3175,57 @@ private fun ProviderCredentialsStep(
             onSave = onSave,
             onChangeAgent = onChangeAgent,
         )
+        return
+    }
+
+    if (agentKind == AgentKind.CODEX_CLI && !useCodexApiKey) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().imePadding(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Text(stringResource(R.string.provider_codex_chatgpt_title), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.provider_codex_chatgpt_desc),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 21.sp,
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        stringResource(R.string.provider_codex_device_command),
+                        modifier = Modifier.padding(14.dp),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Text(
+                    "This uses the official Codex CLI device sign-in. Complete the browser verification, then return to Mobile-Harness. Your login is stored in the private runtime.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+            item {
+                Button(
+                    onClick = onSave,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                ) {
+                    Text(stringResource(R.string.provider_codex_continue))
+                }
+                OutlinedButton(
+                    onClick = { useCodexApiKey = true },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                ) {
+                    Text(stringResource(R.string.provider_codex_api_instead))
+                }
+            }
+        }
         return
     }
 
