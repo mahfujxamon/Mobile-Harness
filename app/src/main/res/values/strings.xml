@@ -281,6 +281,27 @@
     <string name="agent_not_installed">%1$s is not installed</string><string name="agent_install_description">Install its %1$s agent package to use it with your existing projects.</string><string name="agent_install_action">Install %1$s</string>
     <string name="agent_installing_binary">Installing agent binary…</string><string name="chat_welcome">Hi! Tell me what you want to build or change.</string><string name="chat_message_agent">Message %1$s…</string><string name="workspace_files">Files</string><string name="workspace_no_files">No files yet</string><string name="workspace_no_files_description">Ask your coding agent to create something in this project.</string><string name="workspace_project_terminal">Project Terminal</string><string name="workspace_terminal_ready">Mobile Harness Terminal ready.\nType a bash command below or tap a quick command chip above.</string><string name="workspace_preview_url">Preview URL</string><string name="workspace_preview_not_running">Preview not running</string><string name="workspace_preview_not_running_description">Enter a localhost URL above, or start a local web server in the project Terminal.</string>
     <string name="agent_connection_verified">%1$s connection verified.</string><string name="agent_status_verified">Verified</string>
+    <string name="chat_empty_kicker">YOUR WORKSPACE</string>
+    <string name="chat_empty_title">What are we working on?</string>
+    <string name="chat_empty_description">Small fixes, new features, or a tricky bug. Start wherever you are.</string>
+    <string name="chat_empty_starters">A FEW GOOD STARTING POINTS</string>
+    <string name="chat_suggestion_understand">Understand this project</string>
+    <string name="chat_suggestion_understand_desc">Map the structure and main entry points</string>
+    <string name="chat_suggestion_debug_desc">Review likely problems before edits</string>
+    <string name="chat_suggestion_feature_desc">Plan a safe change for this codebase</string>
+    <string name="chat_suggestion_debug">Track down a bug</string>
+    <string name="chat_suggestion_feature">Plan a feature</string>
+    <string name="chat_prompt_understand">Map the project structure, identify the main entry points, and explain how the pieces fit together. Do not edit files yet.</string>
+    <string name="chat_prompt_debug">Inspect the project for likely bugs. Explain the evidence and propose a fix before changing files.</string>
+    <string name="chat_prompt_feature">Help me plan a useful feature for this project. First inspect the existing architecture and outline a small, safe implementation before editing.</string>
+    <string name="chat_empty_hint">Attach a file or photo for context. Nothing is sent until you press the send arrow.</string>
+    <string name="chat_voice_input">Dictate a message</string>
+    <string name="chat_voice_prompt">Speak your message</string>
+    <string name="chat_voice_permission_denied">Allow microphone access to dictate a message.</string>
+    <string name="chat_voice_unavailable">Speech recognition is not available on this device.</string>
+    <string name="chat_voice_no_result">No speech was recognized. Try again.</string>
+    <string name="ws_retry_task_title">Task didn’t finish</string>
+    <string name="ws_retry_task_description">Try again with the same request and attachments. Existing project changes are kept.</string>
     <string name="chat_attach_files">Attach files</string><string name="chat_take_photo">Take photo</string><string name="chat_choose_files">Choose files</string><string name="chat_camera_unavailable">No camera app is available</string>
     <string name="export_busy">Stop the running task, terminal command, build, or file save before exporting.</string>
     <string name="export_success">%1$s exported</string>
