@@ -93,8 +93,9 @@ class CodexRuntimeBridge(
                 add("--json")
                 // Codex keeps live web search disabled unless explicitly requested.
                 add("--search")
-                // Keep Codex confined to the current project workspace instead of disabling its sandbox.
-                add("--full-auto")
+                // Use the current Codex CLI sandbox option; --full-auto was removed in newer CLI releases.
+                add("--sandbox")
+                add("workspace-write")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                     val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
