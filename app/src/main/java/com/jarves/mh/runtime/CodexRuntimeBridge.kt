@@ -97,9 +97,10 @@ class CodexRuntimeBridge(
                     add("--config")
                     add("web_search=\"live\"")
                 }
-                // Run unattended while retaining Codex's workspace-write sandbox.
+                // Current Codex CLI releases use --sandbox workspace-write; --full-auto was removed.
                 // The app's isolated Android PRoot provides an additional outer boundary.
-                add("--full-auto")
+                add("--sandbox")
+                add("workspace-write")
                 add("--skip-git-repo-check")
                 if (provider.kind == ProviderKind.CUSTOM && apiKey.isNotBlank()) {
                     val baseUrl = provider.baseUrl.trimEnd('/').replace("\\", "\\\\").replace("\"", "\\\"")
